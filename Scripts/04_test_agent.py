@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import struct
 import sys
 import uuid
+from collections.abc import Iterator
 from urllib.parse import quote
 
 import requests
@@ -11,6 +14,34 @@ import requests
 from common import REGION, client, load_state
 
 PROMPT = "Find a flight from EZE to BRC on 2026-09-10 and a compatible hotel for two guests for four nights. Recommend one combination."
+
+
+def event_payloads(response: requests.Response) -> Iterator[dict]:
+    """Decode the AWS EventStream frames returned by InvokeHarness."""
+    buffer = b""
+    for chunk in response.iter_content(chunk_size=None):
+        buffer += chunk
+        while len(buffer) >= 12:
+            total_length, headers_length = struct.unpack(">II", buffer[:8])
+            if len(buffer) < total_length:
+                break
+            payload = buffer[12 + headers_length : total_length - 4]
+            buffer = buffer[total_length:]
+            yield json.loads(payload)
+
+
+def print_agent_response(response: requests.Response) -> None:
+    print(f"Harness HTTP status: {response.status_code}")
+    response.raise_for_status()
+    for event in event_payloads(response):
+        if "contentBlockDelta" in event:
+            text = event["contentBlockDelta"].get("delta", {}).get("text")
+            if text:
+                print(text, end="", flush=True)
+        elif "runtimeClientError" in event:
+            print(f"\nAgent error: {event['runtimeClientError']['message']}", file=sys.stderr)
+        elif "messageStop" in event:
+            print(f"\nStop reason: {event['messageStop'].get('stopReason')}")
 
 
 def main() -> None:
@@ -38,9 +69,9 @@ def main() -> None:
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json", "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": str(uuid.uuid4()), "X-Amzn-Bedrock-AgentCore-Runtime-User-Id": "demo-traveler"},
         json={"messages": [{"role": "user", "content": [{"text": PROMPT}]}]},
         timeout=310,
+        stream=True,
     )
-    print(response.text)
-    response.raise_for_status()
+    print_agent_response(response)
 
 
 if __name__ == "__main__":

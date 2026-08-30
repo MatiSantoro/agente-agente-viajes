@@ -21,7 +21,7 @@ def find_gateway() -> str | None:
     return None
 
 
-def prepare_api_for_agentcore(api_id: str, paths: list[str]) -> None:
+def prepare_api_for_agentcore(api_id: str, paths: list[str], query_parameters: dict[str, list[str]]) -> None:
     api_gateway = client("apigateway")
     resources = api_gateway.get_resources(restApiId=api_id, limit=500).get("items", [])
     resources_by_path = {resource["path"]: resource["id"] for resource in resources}
@@ -35,6 +35,28 @@ def prepare_api_for_agentcore(api_id: str, paths: list[str]) -> None:
             except ClientError as error:
                 if not is_error(error, "ConflictException"):
                     raise
+        method = api_gateway.get_method(
+            restApiId=api_id,
+            resourceId=resource_id,
+            httpMethod="GET",
+        )
+        declared_parameters = method.get("requestParameters", {})
+        for parameter in query_parameters.get(path, []):
+            key = f"method.request.querystring.{parameter}"
+            if key in declared_parameters:
+                continue
+            api_gateway.update_method(
+                restApiId=api_id,
+                resourceId=resource_id,
+                httpMethod="GET",
+                patchOperations=[
+                    {
+                        "op": "add",
+                        "path": f"/requestParameters/{key}",
+                        "value": "true",
+                    }
+                ],
+            )
     api_gateway.create_deployment(restApiId=api_id, stageName="prod", description="Add documented responses required by AgentCore target import")
 
 
@@ -77,8 +99,16 @@ def main() -> None:
     existing_gateway = control.get_gateway(gatewayIdentifier=gateway_id)
     gateway_arn = gateway_arn or existing_gateway["gatewayArn"]
     save_state(gateway_id=gateway_id, gateway_arn=gateway_arn, gateway_url=existing_gateway.get("gatewayUrl"), gateway_role_arn=role_arn)
-    prepare_api_for_agentcore(FLIGHTS_API_ID, ["/flights", "/flights/{id}"])
-    prepare_api_for_agentcore(HOTELS_API_ID, ["/hotels", "/hotels/{id}"])
+    prepare_api_for_agentcore(
+        FLIGHTS_API_ID,
+        ["/flights", "/flights/{id}"],
+        {"/flights": ["origin", "destination", "date"]},
+    )
+    prepare_api_for_agentcore(
+        HOTELS_API_ID,
+        ["/hotels", "/hotels/{id}"],
+        {"/hotels": ["destination", "checkIn", "checkOut", "guests"]},
+    )
     target_specs = [
         ("flights-target", FLIGHTS_API_ID, [{"name": "search_flights", "description": "Search flight options by origin, destination and date.", "path": "/flights", "method": "GET"}, {"name": "get_flight", "description": "Get one flight by its ID.", "path": "/flights/{id}", "method": "GET"}], [{"filterPath": "/flights", "methods": ["GET"]}, {"filterPath": "/flights/{id}", "methods": ["GET"]}]),
         ("hotels-target", HOTELS_API_ID, [{"name": "search_hotels", "description": "Search hotels by destination, check-in, check-out and guests.", "path": "/hotels", "method": "GET"}, {"name": "get_hotel", "description": "Get one hotel by its ID.", "path": "/hotels/{id}", "method": "GET"}], [{"filterPath": "/hotels", "methods": ["GET"]}, {"filterPath": "/hotels/{id}", "methods": ["GET"]}]),
@@ -108,6 +138,19 @@ def main() -> None:
         target_id = target["targetId"]
         wait_for(lambda identifier: control.get_gateway_target(gatewayIdentifier=gateway_id, targetId=identifier), target_id)
         target_ids[name] = target_id
+    if target_ids:
+        for target_id in target_ids.values():
+            control.synchronize_gateway_targets(
+                gatewayIdentifier=gateway_id,
+                targetIdList=[target_id],
+            )
+            wait_for(
+                lambda identifier: control.get_gateway_target(
+                    gatewayIdentifier=gateway_id,
+                    targetId=identifier,
+                ),
+                target_id,
+            )
     gateway = control.get_gateway(gatewayIdentifier=gateway_id)
     save_state(gateway_id=gateway_id, gateway_arn=gateway_arn or gateway["gatewayArn"], gateway_url=gateway.get("gatewayUrl"), gateway_role_arn=role_arn, gateway_targets=target_ids)
     print(f"Gateway ARN: {gateway_arn or gateway['gatewayArn']}")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from common import TAGS, client, ensure_role, load_state, save_state, wait_for
+from common import REGION, TAGS, account_id, client, ensure_role, load_state, save_state, wait_for
 
 HARNESS_NAME = "travel_agent"
 ROLE_NAME = "agente-agente-viajes-harness-role"
@@ -22,11 +22,29 @@ def main() -> None:
     missing = [key for key in required if key not in state]
     if missing:
         raise RuntimeError(f"Run 01 and 02 first; missing {missing}")
+    account = account_id()
     role_arn = ensure_role(
         ROLE_NAME,
         {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "bedrock-agentcore.amazonaws.com"}, "Action": "sts:AssumeRole"}]},
         "RunTravelHarness",
-        {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], "Resource": "*"}, {"Effect": "Allow", "Action": "bedrock-agentcore:InvokeGateway", "Resource": state["gateway_arn"]}, {"Effect": "Allow", "Action": "bedrock-agentcore:GetResourceOauth2Token", "Resource": state["credential_provider_arn"]}]},
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Effect": "Allow", "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], "Resource": "*"},
+                {"Effect": "Allow", "Action": "bedrock-agentcore:InvokeGateway", "Resource": state["gateway_arn"]},
+                {
+                    "Effect": "Allow",
+                    "Action": "bedrock-agentcore:GetResourceOauth2Token",
+                    "Resource": [
+                        state["credential_provider_arn"],
+                        f"arn:aws:bedrock-agentcore:{REGION}:{account}:token-vault/default",
+                        f"arn:aws:bedrock-agentcore:{REGION}:{account}:workload-identity-directory/default",
+                        f"arn:aws:bedrock-agentcore:{REGION}:{account}:workload-identity-directory/default/workload-identity/harness_{HARNESS_NAME}-*",
+                    ],
+                },
+                {"Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": f"arn:aws:secretsmanager:{REGION}:{account}:secret:bedrock-agentcore-identity!default/oauth2/travel_cognito_oauth*"},
+            ],
+        },
     )
     harness_id = state.get("harness_id") or find_harness()
     if not harness_id:

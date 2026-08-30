@@ -1,13 +1,24 @@
 # AgentCore provisioning scripts
 
-These scripts create Cognito OAuth scopes, an AgentCore Identity credential provider, a protected MCP Gateway, direct API Gateway targets, and the travel Harness. Direct API Gateway targets use the Gateway's IAM role (the supported outbound mode); the Harness uses the AgentCore Identity OAuth provider to obtain a scoped Cognito token for the Gateway's inbound JWT authorization.
+These scripts create Cognito OAuth scopes, an AgentCore Identity credential provider, a protected MCP Gateway, direct API Gateway targets, and the travel Harness.
 
-Run them from the repository root in order:
+Run the provisioning scripts from the repository root in order:
 
 ```bash
-python3 Scripts/01_cognito_identity.py
-python3 Scripts/02_gateway_and_targets.py
-python3 Scripts/03_harness.py
+.venv/bin/python -m pip install -r Scripts/requirements.txt
+.venv/bin/python Scripts/01_cognito_identity.py
+.venv/bin/python Scripts/02_gateway_and_targets.py
+.venv/bin/python Scripts/03_harness.py
 ```
 
-Every AWS CLI call is fixed to the `agente-agente-viajes` profile and `us-east-1`. `Scripts/.state.json` records non-secret resource identifiers and is ignored by Git. Cognito's M2M client secret is passed directly to AgentCore Identity and never written to the repository or state file.
+Test the complete agent while both targets are connected:
+
+```bash
+.venv/bin/python Scripts/04_test_agent.py
+```
+
+Before the live demo, remove only the Hotels target. Add it back in the AgentCore console as the live moment:
+
+```bash
+.venv/bin/python Scripts/05_remove_hotels_target.py
+```

@@ -1,12 +1,14 @@
-"""Shared helpers for the AgentCore demo provisioning scripts."""
+"""Shared boto3 helpers for the AgentCore demo provisioning scripts."""
 
 from __future__ import annotations
 
 import json
-import subprocess
-import tempfile
 import time
+from functools import lru_cache
 from pathlib import Path
+
+import boto3
+from botocore.exceptions import ClientError
 
 PROFILE = "agente-agente-viajes"
 REGION = "us-east-1"
@@ -15,27 +17,18 @@ STATE_PATH = ROOT / ".state.json"
 TAGS = {"Project": "agente-agente-viajes", "ManagedBy": "Scripts", "Environment": "demo"}
 
 
-class AwsCliError(RuntimeError):
-    pass
+@lru_cache(maxsize=1)
+def session() -> boto3.Session:
+    return boto3.Session(profile_name=PROFILE, region_name=REGION)
 
 
-def aws_cli(arguments: list[str], payload: dict | None = None) -> dict:
-    """Call AWS CLI with the project profile; never prints request secrets."""
-    command = ["aws", *arguments, "--profile", PROFILE, "--region", REGION, "--output", "json"]
-    payload_path = None
-    if payload is not None:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as stream:
-            stream.write(json.dumps(payload))
-            payload_path = stream.name
-        command.extend(["--cli-input-json", f"file://{payload_path}"])
-    try:
-        completed = subprocess.run(command, text=True, capture_output=True, check=False)
-    finally:
-        if payload_path:
-            Path(payload_path).unlink(missing_ok=True)
-    if completed.returncode:
-        raise AwsCliError(completed.stderr.strip() or completed.stdout.strip())
-    return json.loads(completed.stdout) if completed.stdout.strip() else {}
+@lru_cache(maxsize=None)
+def client(service_name: str):
+    return session().client(service_name)
+
+
+def is_error(error: ClientError, code: str) -> bool:
+    return error.response["Error"].get("Code") == code
 
 
 def load_state() -> dict:
@@ -50,24 +43,23 @@ def save_state(**updates: object) -> dict:
 
 
 def account_id() -> str:
-    return aws_cli(["sts", "get-caller-identity"])["Account"]
+    return client("sts").get_caller_identity()["Account"]
 
 
 def ensure_role(name: str, trust_policy: dict, inline_policy_name: str, inline_policy: dict) -> str:
+    iam = client("iam")
     try:
-        role = aws_cli(["iam", "get-role", "--role-name", name])["Role"]
-    except AwsCliError as error:
-        if "NoSuchEntity" not in str(error):
+        role = iam.get_role(RoleName=name)["Role"]
+    except ClientError as error:
+        if not is_error(error, "NoSuchEntity"):
             raise
-        role = aws_cli(
-            ["iam", "create-role"],
-            {"RoleName": name, "AssumeRolePolicyDocument": json.dumps(trust_policy), "Tags": [{"Key": k, "Value": v} for k, v in TAGS.items()]},
+        role = iam.create_role(
+            RoleName=name,
+            AssumeRolePolicyDocument=json.dumps(trust_policy),
+            Tags=[{"Key": key, "Value": value} for key, value in TAGS.items()],
         )["Role"]
         time.sleep(8)
-    aws_cli(
-        ["iam", "put-role-policy"],
-        {"RoleName": name, "PolicyName": inline_policy_name, "PolicyDocument": json.dumps(inline_policy)},
-    )
+    iam.put_role_policy(RoleName=name, PolicyName=inline_policy_name, PolicyDocument=json.dumps(inline_policy))
     return role["Arn"]
 
 

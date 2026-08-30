@@ -1,6 +1,6 @@
 # AgentCore provisioning scripts
 
-These scripts create Cognito OAuth scopes, an AgentCore Identity credential provider, a protected MCP Gateway, direct API Gateway targets, and the travel Harness.
+These scripts create Cognito OAuth scopes, an AgentCore Identity credential provider, a protected MCP Gateway, direct API Gateway targets, and the travel Harness. Direct API Gateway targets use the Gateway's IAM role (the supported outbound mode); the Harness uses the AgentCore Identity OAuth provider to obtain a scoped Cognito token for the Gateway's inbound JWT authorization.
 
 Run them from the repository root in order:
 

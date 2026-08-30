@@ -59,7 +59,7 @@ def main() -> None:
                 "name": name,
                 "description": f"{name} for travel planning",
                 "targetConfiguration": {"mcp": {"apiGateway": {"restApiId": api_id, "stage": "prod", "apiGatewayToolConfiguration": {"toolOverrides": overrides, "toolFilters": filters}}}},
-                "credentialProviderConfigurations": [{"credentialProviderType": "OAUTH", "credentialProvider": {"oauthCredentialProvider": {"providerArn": state["credential_provider_arn"], "grantType": "CLIENT_CREDENTIALS", "scopes": [scope]}}}],
+                "credentialProviderConfigurations": [{"credentialProviderType": "GATEWAY_IAM_ROLE"}],
             },
         )
         target_arns[name] = target["targetArn"]

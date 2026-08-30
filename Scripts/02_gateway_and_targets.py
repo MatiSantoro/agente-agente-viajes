@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from common import TAGS, account_id, aws_cli, ensure_role, load_state, save_state, wait_for
 
-GATEWAY_NAME = "travel_gateway"
+GATEWAY_NAME = "travel-gateway"
 ROLE_NAME = "agente-agente-viajes-gateway-role"
 FLIGHTS_API_ID = "5zoo2ck7cf"
 HOTELS_API_ID = "2ekvs712nj"
@@ -37,8 +37,8 @@ def main() -> None:
         wait_for(lambda identifier: aws_cli(["bedrock-agentcore-control", "get-gateway", "--gateway-identifier", identifier]), gateway_id)
 
     target_specs = [
-        ("flights_target", FLIGHTS_API_ID, state["flights_scope"], [{"name": "search_flights", "description": "Search flight options by origin, destination and date.", "path": "/flights", "method": "GET"}, {"name": "get_flight", "description": "Get one flight by its ID.", "path": "/flights/{id}", "method": "GET"}]),
-        ("hotels_target", HOTELS_API_ID, state["hotels_scope"], [{"name": "search_hotels", "description": "Search hotels by destination, check-in, check-out and guests.", "path": "/hotels", "method": "GET"}, {"name": "get_hotel", "description": "Get one hotel by its ID.", "path": "/hotels/{id}", "method": "GET"}]),
+        ("flights-target", FLIGHTS_API_ID, state["flights_scope"], [{"name": "search_flights", "description": "Search flight options by origin, destination and date.", "path": "/flights", "method": "GET"}, {"name": "get_flight", "description": "Get one flight by its ID.", "path": "/flights/{id}", "method": "GET"}]),
+        ("hotels-target", HOTELS_API_ID, state["hotels_scope"], [{"name": "search_hotels", "description": "Search hotels by destination, check-in, check-out and guests.", "path": "/hotels", "method": "GET"}, {"name": "get_hotel", "description": "Get one hotel by its ID.", "path": "/hotels/{id}", "method": "GET"}]),
     ]
     target_arns = {}
     for name, api_id, scope, overrides in target_specs:

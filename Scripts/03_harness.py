@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from common import TAGS, aws_cli, ensure_role, load_state, save_state, wait_for
 
-HARNESS_NAME = "travel_agent"
+HARNESS_NAME = "travel-agent"
 ROLE_NAME = "agente-agente-viajes-harness-role"
 
 

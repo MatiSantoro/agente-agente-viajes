@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f5f7" />
+    <title>Viajá | Travel agent</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="login-card" id="login-view" aria-labelledby="login-title">
+        <div class="orb orb-one"></div><div class="orb orb-two"></div>
+        <div class="brand-mark" aria-hidden="true">✦</div>
+        <p class="eyebrow">AGENTCORE TRAVEL</p>
+        <h1 id="login-title">A calmer way to plan a trip.</h1>
+        <p class="lede">Sign in to chat with your protected travel agent and compare flights with stays.</p>
+        <button id="sign-in" class="primary-button">Sign in with Cognito <span>→</span></button>
+        <p class="privacy-note">Your session uses Cognito OAuth and only sends your request to the travel agent.</p>
+      </section>
+
+      <section class="app-view" id="app-view" hidden aria-label="Travel agent chat">
+        <header class="toolbar">
+          <div class="identity"><div class="brand-mark small" aria-hidden="true">✦</div><div><strong>Viajá</strong><span>AgentCore travel agent</span></div></div>
+          <div class="toolbar-actions"><span class="status"><i></i> Protected session</span><button id="sign-out" class="quiet-button">Sign out</button></div>
+        </header>
+        <div class="workspace">
+          <aside class="settings" aria-label="Model settings">
+            <p class="eyebrow">TRIP BRAIN</p>
+            <h2>Make it yours.</h2>
+            <label for="model">Model</label>
+            <select id="model">
+              <option value="claude">Claude Sonnet 4.6</option>
+              <option value="nova">Amazon Nova Pro</option>
+            </select>
+            <label for="temperature">Temperature <output id="temperature-value">0.2</output></label>
+            <input id="temperature" type="range" min="0" max="1" value="0.2" step="0.1" />
+            <p id="model-note" class="setting-note">Balanced creativity with reliable tool calls.</p>
+            <div class="tip"><b>Try this</b><span>“Find a nonstop flight from EZE to BRC next Friday and a 4-night hotel for two.”</span></div>
+          </aside>
+          <section class="conversation">
+            <div id="messages" class="messages" aria-live="polite">
+              <article class="message agent welcome"><p class="eyebrow">YOUR TRAVEL ASSISTANT</p><h2>Where would you like to go?</h2><p>I can combine live demo flights and stays into a simple recommendation.</p></article>
+            </div>
+            <form id="composer" class="composer">
+              <label class="sr-only" for="prompt">Your travel request</label>
+              <textarea id="prompt" rows="1" placeholder="Ask about a trip…" required></textarea>
+              <button class="send-button" type="submit" aria-label="Send request">↑</button>
+            </form>
+          </section>
+        </div>
+      </section>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

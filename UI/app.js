@@ -1,0 +1,24 @@
+const config = window.TRAVEL_UI_CONFIG;
+const store = window.sessionStorage;
+const loginView = document.querySelector('#login-view');
+const appView = document.querySelector('#app-view');
+const messages = document.querySelector('#messages');
+const form = document.querySelector('#composer');
+const promptInput = document.querySelector('#prompt');
+const modelInput = document.querySelector('#model');
+const temperatureInput = document.querySelector('#temperature');
+const temperatureValue = document.querySelector('#temperature-value');
+const modelNote = document.querySelector('#model-note');
+
+function base64Url(bytes) { return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
+function sessionId() { let id = store.getItem('travel-session-id'); if (!id) { id = crypto.randomUUID(); store.setItem('travel-session-id', id); } return id; }
+function token() { return store.getItem('access-token'); }
+function addMessage(kind, content, markdown = false) { const el = document.createElement('article'); el.className = `message ${kind}`; if (markdown && window.marked && window.DOMPurify) el.innerHTML = DOMPurify.sanitize(marked.parse(content)); else el.textContent = content; messages.append(el); messages.scrollTop = messages.scrollHeight; return el; }
+function setModelState() { const nova = modelInput.value === 'nova'; temperatureInput.disabled = nova; temperatureInput.value = nova ? '0' : temperatureInput.value || '0.2'; temperatureValue.value = temperatureInput.value; modelNote.textContent = nova ? 'Nova uses temperature 0 for reliable AgentCore tool invocation.' : 'Balanced creativity with reliable tool calls.'; }
+function autoSize() { promptInput.style.height = 'auto'; promptInput.style.height = `${Math.min(promptInput.scrollHeight, 160)}px`; }
+async function sha256(value) { return base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))); }
+function authenticate() { const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48))); store.setItem('pkce-verifier', verifier); sha256(verifier).then(challenge => { const redirect = `${location.origin}${location.pathname}`; const query = new URLSearchParams({ client_id: config.userPoolClientId, response_type: 'code', scope: config.scopes.join(' '), redirect_uri: redirect, code_challenge: challenge, code_challenge_method: 'S256' }); location.assign(`https://${config.cognitoDomain}.auth.${config.region}.amazoncognito.com/oauth2/authorize?${query}`); }); }
+async function consumeCallback() { const code = new URLSearchParams(location.search).get('code'); if (!code) return false; const body = new URLSearchParams({ grant_type: 'authorization_code', client_id: config.userPoolClientId, code, redirect_uri: `${location.origin}${location.pathname}`, code_verifier: store.getItem('pkce-verifier') || '' }); const response = await fetch(`https://${config.cognitoDomain}.auth.${config.region}.amazoncognito.com/oauth2/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body }); if (!response.ok) throw new Error('Could not complete Cognito sign-in.'); const data = await response.json(); store.setItem('access-token', data.access_token); history.replaceState({}, '', location.pathname); return true; }
+async function submit(event) { event.preventDefault(); const text = promptInput.value.trim(); if (!text) return; addMessage('user', text); promptInput.value = ''; autoSize(); const submitButton = form.querySelector('button'); submitButton.disabled = true; const pending = addMessage('agent', '<div class="thinking"><i></i><i></i><i></i> Planning your trip</div>', true); try { const response = await fetch(config.apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }, body: JSON.stringify({ message: text, sessionId: sessionId(), model: modelInput.value, temperature: Number(temperatureInput.value) }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message || 'The agent could not complete that request.'); pending.remove(); addMessage('agent', data.markdown, true); } catch (error) { pending.remove(); addMessage('agent', `I couldn’t complete that: ${error.message}`); } finally { submitButton.disabled = false; promptInput.focus(); } }
+async function boot() { try { await consumeCallback(); } catch (error) { addMessage('agent', error.message); } if (token()) { loginView.hidden = true; appView.hidden = false; sessionId(); promptInput.focus(); } }
+document.querySelector('#sign-in').addEventListener('click', authenticate); document.querySelector('#sign-out').addEventListener('click', () => { store.clear(); location.reload(); }); form.addEventListener('submit', submit); promptInput.addEventListener('input', autoSize); modelInput.addEventListener('change', setModelState); temperatureInput.addEventListener('input', setModelState); setModelState(); boot();

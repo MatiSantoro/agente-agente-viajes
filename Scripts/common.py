@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -22,15 +23,17 @@ class AwsCliError(RuntimeError):
 def aws_cli(arguments: list[str], payload: dict | None = None) -> dict:
     """Call AWS CLI with the project profile; never prints request secrets."""
     command = ["aws", *arguments, "--profile", PROFILE, "--region", REGION, "--output", "json"]
+    payload_path = None
     if payload is not None:
-        command.extend(["--cli-input-json", "file:///dev/stdin"])
-    completed = subprocess.run(
-        command,
-        input=json.dumps(payload) if payload is not None else None,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as stream:
+            stream.write(json.dumps(payload))
+            payload_path = stream.name
+        command.extend(["--cli-input-json", f"file://{payload_path}"])
+    try:
+        completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    finally:
+        if payload_path:
+            Path(payload_path).unlink(missing_ok=True)
     if completed.returncode:
         raise AwsCliError(completed.stderr.strip() or completed.stdout.strip())
     return json.loads(completed.stdout) if completed.stdout.strip() else {}

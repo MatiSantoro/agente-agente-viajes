@@ -23,7 +23,7 @@ def find_user_pool() -> str | None:
 
 
 def find_client(pool_id: str) -> str | None:
-    for client in aws_cli(["cognito-idp", "list-user-pool-clients", "--user-pool-id", pool_id, "--max-results", "60"]).get("UserPoolClients", []):
+    for client in aws_cli(["cognito-idp", "list-user-pool-clients", "--user-pool-id", pool_id, "--max-results", "50"]).get("UserPoolClients", []):
         if client["ClientName"] == CLIENT_NAME:
             return client["ClientId"]
     return None
@@ -35,7 +35,7 @@ def main() -> None:
     if not pool_id:
         pool_id = aws_cli(["cognito-idp", "create-user-pool"], {"PoolName": POOL_NAME, "UserPoolTags": TAGS})["UserPool"]["Id"]
 
-    servers = aws_cli(["cognito-idp", "list-resource-servers", "--user-pool-id", pool_id, "--max-results", "60"]).get("ResourceServers", [])
+    servers = aws_cli(["cognito-idp", "list-resource-servers", "--user-pool-id", pool_id, "--max-results", "50"]).get("ResourceServers", [])
     if not any(server["Identifier"] == RESOURCE_SERVER_ID for server in servers):
         aws_cli(["cognito-idp", "create-resource-server"], {"UserPoolId": pool_id, "Identifier": RESOURCE_SERVER_ID, "Name": RESOURCE_SERVER_NAME, "Scopes": SCOPES})
 

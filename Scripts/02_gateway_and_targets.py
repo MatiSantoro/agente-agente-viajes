@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from common import TAGS, account_id, aws_cli, ensure_role, load_state, save_state, wait_for
 
 GATEWAY_NAME = "travel-gateway"
@@ -77,7 +79,13 @@ def main() -> None:
         current = existing_target(gateway_id, name)
         if current and current["status"] == "FAILED":
             aws_cli(["bedrock-agentcore-control", "delete-gateway-target", "--gateway-identifier", gateway_id, "--target-id", current["targetId"]])
-            current = None
+            for _ in range(24):
+                time.sleep(5)
+                if not existing_target(gateway_id, name):
+                    current = None
+                    break
+            else:
+                raise TimeoutError(f"Timed out deleting failed target {name}")
         if current:
             target_arns[name] = current["targetId"]
             continue

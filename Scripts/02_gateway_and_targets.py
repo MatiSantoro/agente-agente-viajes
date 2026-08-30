@@ -27,7 +27,11 @@ def prepare_api_for_agentcore(api_id: str, paths: list[str]) -> None:
         if not resource_id:
             raise RuntimeError(f"Could not find {path} in API Gateway REST API {api_id}")
         for status_code in ("200", "404"):
-            aws_cli(["apigateway", "put-method-response", "--rest-api-id", api_id, "--resource-id", resource_id, "--http-method", "GET", "--status-code", status_code])
+            try:
+                aws_cli(["apigateway", "put-method-response", "--rest-api-id", api_id, "--resource-id", resource_id, "--http-method", "GET", "--status-code", status_code])
+            except Exception as error:
+                if "Response already exists" not in str(error):
+                    raise
     aws_cli(["apigateway", "create-deployment", "--rest-api-id", api_id, "--stage-name", "prod", "--description", "Add documented responses required by AgentCore target import"])
 
 

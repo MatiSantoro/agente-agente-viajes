@@ -26,7 +26,7 @@ def main() -> None:
         ROLE_NAME,
         {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "bedrock-agentcore.amazonaws.com"}, "Action": "sts:AssumeRole"}]},
         "RunTravelHarness",
-        {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], "Resource": "*"}, {"Effect": "Allow", "Action": "bedrock-agentcore:InvokeGateway", "Resource": state["gateway_arn"]}]},
+        {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], "Resource": "*"}, {"Effect": "Allow", "Action": "bedrock-agentcore:InvokeGateway", "Resource": state["gateway_arn"]}, {"Effect": "Allow", "Action": "bedrock-agentcore:GetResourceOauth2Token", "Resource": state["credential_provider_arn"]}]},
     )
     harness_id = state.get("harness_id") or find_harness()
     if not harness_id:

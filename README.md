@@ -17,6 +17,19 @@ AgentCore Gateway (descubre y expone APIs como herramientas MCP)
 TicketDesk API / Inventory API
 
 AgentCore Identity aporta autorización OAuth delegada para que cada llamada se realice en nombre del usuario.
+
+## Interfaz web de prueba
+
+El proyecto incluirá una interfaz web pequeña para que las personas puedan probar el agente sin usar la terminal. La UI enviará los mensajes a un backend propio, y éste invocará AgentCore Harness; las credenciales y la configuración de AWS permanecerán siempre del lado servidor.
+
+La interfaz deberá permitir:
+
+- enviar una petición en lenguaje natural al agente;
+- ver la respuesta y el estado de la invocación;
+- iniciar una sesión nueva para validar que el agente descubra targets agregados recientemente al Gateway;
+- mostrar ejemplos rápidos para TicketDesk e Inventory.
+
+La UI será una herramienta de prueba para la demo, no reemplaza las invocaciones de CLI ni expone directamente las APIs o el ARN del Harness al navegador.
 ```
 
 ## Idea principal
@@ -73,6 +86,7 @@ apis/
 gateway/         # Configuración y pasos para crear el Gateway y su target inicial
 identity/        # Configuración del proveedor OAuth para autorización delegada
 harness/         # Configuración del agente y comandos agentcore CLI
+web/             # UI de prueba y backend que invoca AgentCore Harness
 ```
 
 ## Principios de seguridad
@@ -87,4 +101,3 @@ harness/         # Configuración del agente y comandos agentcore CLI
 - [Amazon Bedrock AgentCore](https://docs.aws.amazon.com/bedrock-agentcore/)
 - [AgentCore samples de AWS Labs](https://github.com/awslabs/agentcore-samples)
 - Serie de Vadym Kazulkin sobre AgentCore Gateway, Identity y Runtime en dev.to.
-

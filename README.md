@@ -14,7 +14,8 @@ AgentCore Harness (modelo, instrucciones y Gateway ARN)
 AgentCore Gateway (descubre y expone APIs como herramientas MCP)
         |
         v
-TicketDesk API / Inventory API
+Flights API / Hotels API
+```
 
 AgentCore Identity aporta autorización OAuth delegada para que cada llamada se realice en nombre del usuario.
 
@@ -27,14 +28,13 @@ La interfaz deberá permitir:
 - enviar una petición en lenguaje natural al agente;
 - ver la respuesta y el estado de la invocación;
 - iniciar una sesión nueva para validar que el agente descubra targets agregados recientemente al Gateway;
-- mostrar ejemplos rápidos para TicketDesk e Inventory.
+- mostrar ejemplos rápidos para vuelos y hoteles.
 
 La UI será una herramienta de prueba para la demo, no reemplaza las invocaciones de CLI ni expone directamente las APIs o el ARN del Harness al navegador.
-```
 
 ## Idea principal
 
-El Harness sólo necesita conocer el ARN completo del Gateway. Por eso, cuando se incorpora una API nueva como target del Gateway, sus operaciones pasan a estar disponibles como herramientas MCP sin modificar ni redeplegar el agente. La demo muestra primero TicketDesk, ya conectado, y agrega Inventory en vivo para demostrar que el patrón es independiente de la API.
+El Harness sólo necesita conocer el ARN completo del Gateway. Por eso, cuando se incorpora una API nueva como target del Gateway, sus operaciones pasan a estar disponibles como herramientas MCP sin modificar ni redeplegar el agente. La demo muestra primero Flights, ya conectado, y agrega Hotels en vivo para demostrar que el patrón es independiente de la API. Finalmente, el agente combina ambas fuentes para proponer una alternativa de viaje que se ajuste a la solicitud del usuario.
 
 ## Componentes
 
@@ -43,36 +43,33 @@ El Harness sólo necesita conocer el ARN completo del Gateway. Por eso, cuando s
 | **AgentCore Harness** | Declara y ejecuta el agente: modelo Bedrock, instrucciones y herramientas. |
 | **AgentCore Gateway** | Conecta APIs REST existentes y las presenta al agente como herramientas MCP. |
 | **AgentCore Identity** | Gestiona OAuth y autorización delegada, evitando credenciales estáticas en el agente. |
-| **TicketDesk** | API de soporte que se usa como target inicial del Gateway. |
-| **Inventory** | API de inventario que se agrega al Gateway durante la demo. |
+| **Flights** | API de búsqueda de vuelos que se usa como target inicial del Gateway. |
+| **Hotels** | API de búsqueda de hoteles que se agrega al Gateway durante la demo. |
 
 ## APIs de la demo
 
-### TicketDesk
+### Flights
 
-API REST interna para gestionar tickets de soporte:
+API REST para buscar opciones de vuelo:
 
-- `GET /tickets` — listar tickets.
-- `POST /tickets` — crear ticket (`title`, `description`).
-- `GET /tickets/{id}` — obtener el detalle.
-- `PATCH /tickets/{id}/status` — actualizar el estado.
+- `GET /flights` — buscar vuelos por origen, destino, fecha y cantidad de pasajeros.
+- `GET /flights/{id}` — obtener el detalle de una opción de vuelo.
 
-### Inventory
+### Hotels
 
-API REST de inventario para probar que el enfoque es genérico:
+API REST para buscar alojamientos:
 
-- `GET /inventory` — listar productos y stock.
-- `GET /inventory/{sku}` — obtener el detalle de un producto.
-- `PATCH /inventory/{sku}/stock` — actualizar stock.
+- `GET /hotels` — buscar hoteles por destino, fechas de entrada/salida y huéspedes.
+- `GET /hotels/{id}` — obtener el detalle de una opción de alojamiento.
 
-Ambas APIs se implementarán con AWS Lambda (Python) y Amazon API Gateway REST. Se validan con `curl` antes de conectarlas al Gateway.
+Ambas APIs se implementarán con AWS Lambda (Python) y Amazon API Gateway REST. Se validan con `curl` antes de conectarlas al Gateway. El agente usa los resultados de ambas para recomendar una combinación coherente de vuelo y hotel.
 
 ## Flujo de la demo
 
-1. Probar TicketDesk directamente con `curl`.
-2. Invocar el agente del Harness para crear o consultar un ticket a través del Gateway.
-3. Agregar Inventory como un nuevo target al Gateway desde la consola de AWS.
-4. Iniciar una nueva invocación del agente y solicitar una operación de inventario, sin cambiar el Harness.
+1. Probar Flights directamente con `curl`.
+2. Invocar el agente del Harness para buscar un vuelo a través del Gateway.
+3. Agregar Hotels como un nuevo target al Gateway desde la consola de AWS.
+4. Iniciar una nueva invocación del agente y pedir una combinación de vuelo y hotel, sin cambiar el Harness.
 5. Mostrar los logs o trazas de Identity para comprobar que la API recibió la identidad del usuario, no una credencial fija ni la identidad del agente.
 
 > Antes de la charla hay que verificar si una sesión ya iniciada descubre el target nuevo, o si hace falta iniciar una sesión nueva. El resultado debe documentarse aquí junto con el comando usado.
@@ -81,8 +78,8 @@ Ambas APIs se implementarán con AWS Lambda (Python) y Amazon API Gateway REST. 
 
 ```text
 apis/
-  ticketdesk/    # Lambda y definición/instrucciones de API Gateway
-  inventory/     # Lambda y definición/instrucciones de API Gateway
+  flights/       # Lambda y definición/instrucciones de API Gateway
+  hotels/        # Lambda y definición/instrucciones de API Gateway
 gateway/         # Configuración y pasos para crear el Gateway y su target inicial
 identity/        # Configuración del proveedor OAuth para autorización delegada
 harness/         # Configuración del agente y comandos agentcore CLI

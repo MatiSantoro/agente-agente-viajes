@@ -17,6 +17,25 @@ def find_gateway() -> str | None:
     return None
 
 
+def prepare_api_for_agentcore(api_id: str, paths: list[str]) -> None:
+    resources = aws_cli(["apigateway", "get-resources", "--rest-api-id", api_id, "--limit", "500"]).get("items", [])
+    resources_by_path = {resource["path"]: resource["id"] for resource in resources}
+    for path in paths:
+        resource_id = resources_by_path.get(path)
+        if not resource_id:
+            raise RuntimeError(f"Could not find {path} in API Gateway REST API {api_id}")
+        for status_code in ("200", "404"):
+            aws_cli(["apigateway", "put-method-response", "--rest-api-id", api_id, "--resource-id", resource_id, "--http-method", "GET", "--status-code", status_code])
+    aws_cli(["apigateway", "create-deployment", "--rest-api-id", api_id, "--stage-name", "prod", "--description", "Add documented responses required by AgentCore target import"])
+
+
+def existing_target(gateway_id: str, name: str) -> dict | None:
+    for target in aws_cli(["bedrock-agentcore-control", "list-gateway-targets", "--gateway-identifier", gateway_id]).get("items", []):
+        if target["name"] == name:
+            return target
+    return None
+
+
 def main() -> None:
     state = load_state()
     required = ["cognito_discovery_url", "cognito_client_id", "flights_scope", "hotels_scope", "credential_provider_arn"]
@@ -46,12 +65,22 @@ def main() -> None:
     gateway_arn = gateway_arn or existing_gateway["gatewayArn"]
     save_state(gateway_id=gateway_id, gateway_arn=gateway_arn, gateway_url=existing_gateway.get("gatewayUrl"), gateway_role_arn=role_arn)
 
+    prepare_api_for_agentcore(FLIGHTS_API_ID, ["/flights", "/flights/{id}"])
+    prepare_api_for_agentcore(HOTELS_API_ID, ["/hotels", "/hotels/{id}"])
+
     target_specs = [
         ("flights-target", FLIGHTS_API_ID, state["flights_scope"], [{"name": "search_flights", "description": "Search flight options by origin, destination and date.", "path": "/flights", "method": "GET"}, {"name": "get_flight", "description": "Get one flight by its ID.", "path": "/flights/{id}", "method": "GET"}], [{"filterPath": "/flights", "methods": ["GET"]}, {"filterPath": "/flights/{id}", "methods": ["GET"]}]),
         ("hotels-target", HOTELS_API_ID, state["hotels_scope"], [{"name": "search_hotels", "description": "Search hotels by destination, check-in, check-out and guests.", "path": "/hotels", "method": "GET"}, {"name": "get_hotel", "description": "Get one hotel by its ID.", "path": "/hotels/{id}", "method": "GET"}], [{"filterPath": "/hotels", "methods": ["GET"]}, {"filterPath": "/hotels/{id}", "methods": ["GET"]}]),
     ]
     target_arns = {}
     for name, api_id, scope, overrides, filters in target_specs:
+        current = existing_target(gateway_id, name)
+        if current and current["status"] == "FAILED":
+            aws_cli(["bedrock-agentcore-control", "delete-gateway-target", "--gateway-identifier", gateway_id, "--target-id", current["targetId"]])
+            current = None
+        if current:
+            target_arns[name] = current["targetId"]
+            continue
         target = aws_cli(
             ["bedrock-agentcore-control", "create-gateway-target"],
             {
@@ -62,7 +91,9 @@ def main() -> None:
                 "credentialProviderConfigurations": [{"credentialProviderType": "GATEWAY_IAM_ROLE"}],
             },
         )
-        target_arns[name] = target["targetArn"]
+        target_id = target["targetId"]
+        wait_for(lambda identifier: aws_cli(["bedrock-agentcore-control", "get-gateway-target", "--gateway-identifier", gateway_id, "--target-id", identifier]), target_id)
+        target_arns[name] = target_id
 
     gateway = aws_cli(["bedrock-agentcore-control", "get-gateway", "--gateway-identifier", gateway_id])
     save_state(gateway_id=gateway_id, gateway_arn=gateway_arn or gateway["gatewayArn"], gateway_url=gateway.get("gatewayUrl"), gateway_role_arn=role_arn, gateway_targets=target_arns)

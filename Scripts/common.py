@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 
-PROFILE = os.environ.get("AWS_PROFILE", "agente-agente-viajes")
-REGION = os.environ.get("AWS_REGION", "us-east-1")
+PROFILE = "agente-agente-viajes"
+REGION = "us-east-1"
 ROOT = Path(__file__).resolve().parent
 STATE_PATH = ROOT / ".state.json"
 TAGS = {"Project": "agente-agente-viajes", "ManagedBy": "Scripts", "Environment": "demo"}

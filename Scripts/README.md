@@ -10,4 +10,4 @@ python3 Scripts/02_gateway_and_targets.py
 python3 Scripts/03_harness.py
 ```
 
-They use `AWS_PROFILE=agente-agente-viajes` and `AWS_REGION=us-east-1` by default. `Scripts/.state.json` records non-secret resource identifiers and is ignored by Git. Cognito's M2M client secret is passed directly to AgentCore Identity and never written to the repository or state file.
+Every AWS CLI call is fixed to the `agente-agente-viajes` profile and `us-east-1`. `Scripts/.state.json` records non-secret resource identifiers and is ignored by Git. Cognito's M2M client secret is passed directly to AgentCore Identity and never written to the repository or state file.

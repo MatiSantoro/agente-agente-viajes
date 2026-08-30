@@ -1,0 +1,7 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["dynamodb:Query", "dynamodb:Scan"], "Resource": "arn:aws:dynamodb:us-east-1:239248123204:table/agente-agente-viajes-flights"},
+    {"Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"], "Resource": "arn:aws:logs:us-east-1:239248123204:log-group:/aws/lambda/agente-agente-viajes-flights:*"}
+  ]
+}

@@ -6,7 +6,7 @@ from common import REGION, TAGS, account_id, client, ensure_role, load_state, sa
 
 HARNESS_NAME = "travel_agent"
 ROLE_NAME = "agente-agente-viajes-harness-role"
-MODEL_ID = "anthropic.claude-sonnet-4-6"
+MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 MODEL_MAX_TOKENS = 3000
 MODEL_TEMPERATURE = 0
 

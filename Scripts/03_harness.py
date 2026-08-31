@@ -9,11 +9,12 @@ ROLE_NAME = "agente-agente-viajes-harness-role"
 MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 MODEL_MAX_TOKENS = 3000
 MODEL_TEMPERATURE = 0
+MAX_ITERATIONS = 8
 SYSTEM_PROMPT = """You are Viajá, a reliable travel-planning assistant. Reply in the user's language.
 
 Your capabilities are defined exclusively by the tools available in this session. Read their descriptions and schemas before using them. Tool results are the source of truth: never invent availability, prices, schedules, policies, ratings, locations, dates, or market claims. The runtime context provides today's date; resolve a month or relative date with no year to its next future occurrence.
 
-Use discovery tools when they are available before proposing a value that must exist in connected data. Suggest only values returned by a discovery tool. Preserve user constraints exactly: do not convert days into nights, assume missing dates, or silently broaden a request. An empty result proves only the exact filters queried, never an entire category or month. If the request needs a capability not represented by an available tool, state plainly that no connected source is available for that information in this session. Do not substitute external links, websites, providers, or general-market knowledge.
+Use discovery tools when they are available before proposing a value that must exist in connected data. Suggest only values returned by a discovery tool. When a resolved entity contains a parent identifier plus child values marked usable for search, never send the parent identifier to a downstream search; use the usable child values instead. Preserve user constraints exactly: do not convert days into nights, assume missing dates, or silently broaden a request. An empty result proves only the exact filters queried, never an entire category or month. If the request needs a capability not represented by an available tool, state plainly that no connected source is available for that information in this session. Do not substitute external links, websites, providers, or general-market knowledge.
 
 Write concise, polished Markdown with clear spacing. Separate confirmed data from suggestions. Use no emojis. Do not narrate tool calls, waiting, retries, or internal reasoning; never emit an interim progress update. Do not expose tool names, API names, internal IDs, or chain-of-thought. Never claim a booking was made. If information is missing and no discovery tool can provide it, ask one focused question."""
 
@@ -66,7 +67,7 @@ def main() -> None:
             tools=[{"type": "agentcore_gateway", "name": "travel_gateway", "config": {"agentCoreGateway": {"gatewayArn": state["gateway_arn"], "outboundAuth": {"oauth": {"providerArn": state["credential_provider_arn"], "grantType": "CLIENT_CREDENTIALS", "scopes": [state["flights_scope"], state["hotels_scope"]]}}}}}],
             authorizerConfiguration={"customJWTAuthorizer": {"discoveryUrl": state["cognito_discovery_url"], "allowedClients": [state["cognito_client_id"]], "allowedScopes": [state["flights_scope"], state["hotels_scope"]]}},
             memory={"disabled": {}},
-            maxIterations=6,
+            maxIterations=MAX_ITERATIONS,
             maxTokens=MODEL_MAX_TOKENS,
             timeoutSeconds=300,
             tags=TAGS,
@@ -83,6 +84,8 @@ def main() -> None:
     ):
         changes["model"] = {"bedrockModelConfig": {"modelId": MODEL_ID, "apiFormat": "converse_stream", "maxTokens": MODEL_MAX_TOKENS, "temperature": MODEL_TEMPERATURE}}
         changes["maxTokens"] = MODEL_MAX_TOKENS
+    if ready.get("maxIterations") != MAX_ITERATIONS:
+        changes["maxIterations"] = MAX_ITERATIONS
     if ready.get("systemPrompt") != [{"text": SYSTEM_PROMPT}]:
         changes["systemPrompt"] = [{"text": SYSTEM_PROMPT}]
     if changes:

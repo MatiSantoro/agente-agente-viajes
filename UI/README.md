@@ -4,4 +4,4 @@ Static frontend for the AgentCore travel Harness. `Scripts/06_ui_frontend.py` cr
 
 The UI has its own sign-in screen. It authenticates directly with the Cognito User Pool using `USER_PASSWORD_AUTH`; it does not redirect users to the Cognito Hosted UI. It renders returned agent Markdown with `marked` and sanitizes it with DOMPurify.
 
-Only Claude Sonnet 4.6 and Nova Pro are presented because they use the compatible Bedrock Converse / AgentCore tool contract. Nova is deliberately locked to temperature `0` to preserve reliable MCP tool invocation.
+The selector offers Claude Sonnet 4.6, Nova Pro, Qwen3 32B, Kimi K2.5, and DeepSeek V3.2. All use the compatible Bedrock Converse / AgentCore tool contract. Nova is deliberately locked to temperature `0` to preserve reliable MCP tool invocation; the additional third-party models are labelled experimental until they complete tool-use evaluation.

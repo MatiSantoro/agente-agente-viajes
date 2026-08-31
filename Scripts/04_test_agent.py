@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import struct
 import sys
 import uuid
@@ -14,11 +15,13 @@ import requests
 from common import REGION, client, load_state
 
 PROMPT = "Quiero viajar desde Buenos Aires a Mendoza en septiembre de 2026. Somos 2 personas y podemos quedarnos hasta 4 noches. Buscá solamente opciones que existan en los datos conectados y recomendame la de mejor precio."
+MODEL_ID = os.environ.get("MODEL_ID")
 
 
-def event_type(headers: bytes) -> str:
-    """Extract the AWS EventStream :event-type string header."""
+def event_type(headers: bytes) -> str | None:
+    """Extract :event-type without assuming every EventStream header is a string."""
     offset = 0
+    fixed_sizes = {0: 0, 1: 0, 2: 1, 3: 2, 4: 4, 5: 8, 8: 8, 9: 16}
     while offset < len(headers):
         name_length = headers[offset]
         offset += 1
@@ -26,15 +29,17 @@ def event_type(headers: bytes) -> str:
         offset += name_length
         value_type = headers[offset]
         offset += 1
-        if value_type != 7:
-            raise ValueError(f"Unsupported EventStream header type: {value_type}")
-        value_length = struct.unpack(">H", headers[offset : offset + 2])[0]
-        offset += 2
-        value = headers[offset : offset + value_length].decode("utf-8")
-        offset += value_length
-        if name == ":event-type":
-            return value
-    raise ValueError("EventStream frame is missing :event-type")
+        if value_type in {6, 7}:
+            value_length = struct.unpack(">H", headers[offset : offset + 2])[0]
+            offset += 2
+            value_bytes = headers[offset : offset + value_length]
+            offset += value_length
+        else:
+            value_bytes = headers[offset : offset + fixed_sizes.get(value_type, 0)]
+            offset += fixed_sizes.get(value_type, 0)
+        if name == ":event-type" and value_type == 7:
+            return value_bytes.decode("utf-8")
+    return None
 
 
 def event_payloads(response: requests.Response) -> Iterator[dict]:
@@ -49,7 +54,9 @@ def event_payloads(response: requests.Response) -> Iterator[dict]:
             headers = buffer[12 : 12 + headers_length]
             payload = buffer[12 + headers_length : total_length - 4]
             buffer = buffer[total_length:]
-            yield {event_type(headers): json.loads(payload)}
+            name = event_type(headers)
+            if name:
+                yield {name: json.loads(payload)}
 
 
 def print_agent_response(response: requests.Response) -> None:
@@ -108,7 +115,10 @@ def main() -> None:
             "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": str(uuid.uuid4()),
             "X-Amzn-Bedrock-AgentCore-Runtime-User-Id": "demo-traveler",
         },
-        json={"messages": [{"role": "user", "content": [{"text": PROMPT}]}]},
+        json={
+            "messages": [{"role": "user", "content": [{"text": PROMPT}]}],
+            **({"model": {"bedrockModelConfig": {"modelId": MODEL_ID, "apiFormat": "converse_stream", "maxTokens": 3000, "temperature": 0}}} if MODEL_ID else {}),
+        },
         timeout=310,
         stream=True,
     )

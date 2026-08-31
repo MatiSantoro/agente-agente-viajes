@@ -20,7 +20,14 @@ function sessionId() { let id = store.getItem('travel-session-id'); if (!id) { i
 function token() { return store.getItem('access-token'); }
 function normalizeMarkdown(content) { return content.replace(/([.!?])\s*(?=[🔍🔄])/gu, '$1\n\n').replace(/([🔍🔄])(?=[A-ZÁÉÍÓÚÑ])/gu, '$1\n\n'); }
 function addMessage(kind, content, markdown = false) { const el = document.createElement('article'); el.className = `message ${kind}`; if (markdown && window.marked && window.DOMPurify) el.innerHTML = DOMPurify.sanitize(marked.parse(normalizeMarkdown(content))); else el.textContent = content; messages.append(el); messages.scrollTop = messages.scrollHeight; return el; }
-function setModelState() { const nova = modelInput.value === 'nova'; temperatureInput.disabled = nova; temperatureInput.value = nova ? '0' : temperatureInput.value || '0.2'; temperatureValue.value = temperatureInput.value; modelNote.textContent = nova ? 'Nova uses temperature 0 for reliable AgentCore tool invocation.' : 'Balanced creativity with reliable tool calls.'; }
+const modelNotes = {
+  claude: 'Balanced creativity with reliable tool calls.',
+  nova: 'Nova uses temperature 0 for reliable AgentCore tool invocation.',
+  qwen: 'Experimental: use a low temperature for grounded tool calls.',
+  kimi: 'Experimental: use a low temperature for grounded tool calls.',
+  deepseek: 'Experimental: use a low temperature for grounded tool calls.',
+};
+function setModelState() { const nova = modelInput.value === 'nova'; temperatureInput.disabled = nova; temperatureInput.value = nova ? '0' : temperatureInput.value || '0.2'; temperatureValue.value = temperatureInput.value; modelNote.textContent = modelNotes[modelInput.value]; }
 function autoSize() { promptInput.style.height = 'auto'; promptInput.style.height = `${Math.min(promptInput.scrollHeight, 160)}px`; }
 async function submit(event) { event.preventDefault(); const text = promptInput.value.trim(); if (!text) return; addMessage('user', text); promptInput.value = ''; autoSize(); const submitButton = form.querySelector('button'); submitButton.disabled = true; const pending = addMessage('agent', '<div class="thinking"><i></i><i></i><i></i> Planning your trip</div>', true); try { const response = await fetch(config.apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: token() }, body: JSON.stringify({ message: text, sessionId: sessionId(), model: modelInput.value, temperature: Number(temperatureInput.value) }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message || 'The agent could not complete that request.'); pending.remove(); addMessage('agent', data.markdown, true); } catch (error) { pending.remove(); addMessage('agent', `I couldn’t complete that: ${error.message}`); } finally { submitButton.disabled = false; promptInput.focus(); } }
 function openApp() { loginView.hidden = true; appView.hidden = false; sessionId(); promptInput.focus(); }

@@ -15,6 +15,9 @@ REGION = os.environ["AWS_REGION"]
 MODEL_CONFIGS = {
     "claude": "us.anthropic.claude-sonnet-4-6",
     "nova": "amazon.nova-pro-v1:0",
+    "qwen": "qwen.qwen3-32b-v1:0",
+    "kimi": "moonshotai.kimi-k2.5",
+    "deepseek": "deepseek.v3.2",
 }
 
 
@@ -27,17 +30,26 @@ def response(status_code: int, body: dict) -> dict:
 
 
 def header_event_type(headers: bytes) -> str:
+    """Read AWS EventStream headers without assuming every header is a string."""
     offset = 0
+    fixed_sizes = {0: 0, 1: 0, 2: 1, 3: 2, 4: 4, 5: 8, 8: 8, 9: 16}
     while offset < len(headers):
         name_length = headers[offset]
         offset += 1
         name = headers[offset : offset + name_length].decode("utf-8")
-        offset += name_length + 1
-        value_length = struct.unpack(">H", headers[offset : offset + 2])[0]
-        offset += 2
-        value = headers[offset : offset + value_length].decode("utf-8")
-        offset += value_length
-        if name == ":event-type":
+        offset += name_length
+        value_type = headers[offset]
+        offset += 1
+        if value_type in {6, 7}:
+            value_length = struct.unpack(">H", headers[offset : offset + 2])[0]
+            offset += 2
+            value_bytes = headers[offset : offset + value_length]
+            offset += value_length
+        else:
+            value_bytes = headers[offset : offset + fixed_sizes.get(value_type, 0)]
+            offset += fixed_sizes.get(value_type, 0)
+        if name == ":event-type" and value_type == 7:
+            value = value_bytes.decode("utf-8")
             return value
     return "unknown"
 

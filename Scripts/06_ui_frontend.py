@@ -17,6 +17,7 @@ LAMBDA_SOURCE = ROOT / "lambda" / "ui_chat_handler.py"
 APP_CLIENT_NAME = "agente-agente-viajes-ui"
 API_NAME = "agente-agente-viajes-ui"
 FUNCTION_NAME = "agente-agente-viajes-ui-chat"
+UI_SESSION_SCOPE = "aws.cognito.signin.user.admin"
 
 
 def find_client(pool_id: str) -> str | None:
@@ -139,6 +140,18 @@ def ensure_chat_api(pool_id: str, scope: str, function_arn: str) -> str:
     except ClientError as error:
         if not is_error(error, "ConflictException"):
             raise
+        existing_scopes = api.get_method(
+            restApiId=api_id, resourceId=chat["id"], httpMethod="POST"
+        ).get("authorizationScopes", [])
+        api.update_method(
+            restApiId=api_id,
+            resourceId=chat["id"],
+            httpMethod="POST",
+            patchOperations=[
+                *[{"op": "remove", "path": "/authorizationScopes", "value": value} for value in existing_scopes],
+                {"op": "add", "path": "/authorizationScopes", "value": scope},
+            ],
+        )
     api.put_integration(restApiId=api_id, resourceId=chat["id"], httpMethod="POST", type="AWS_PROXY", integrationHttpMethod="POST", uri=f"arn:aws:apigateway:{REGION}:lambda:path/2015-03-31/functions/{function_arn}/invocations")
     try:
         api.put_method(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", authorizationType="NONE")
@@ -146,8 +159,16 @@ def ensure_chat_api(pool_id: str, scope: str, function_arn: str) -> str:
         if not is_error(error, "ConflictException"):
             raise
     api.put_integration(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", type="MOCK", requestTemplates={"application/json": '{"statusCode": 200}'})
-    api.put_method_response(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", statusCode="200", responseParameters={"method.response.header.Access-Control-Allow-Headers": False, "method.response.header.Access-Control-Allow-Methods": False, "method.response.header.Access-Control-Allow-Origin": False})
-    api.put_integration_response(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", statusCode="200", responseParameters={"method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'", "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'", "method.response.header.Access-Control-Allow-Origin": "'*'"})
+    try:
+        api.put_method_response(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", statusCode="200", responseParameters={"method.response.header.Access-Control-Allow-Headers": False, "method.response.header.Access-Control-Allow-Methods": False, "method.response.header.Access-Control-Allow-Origin": False})
+    except ClientError as error:
+        if not is_error(error, "ConflictException"):
+            raise
+    try:
+        api.put_integration_response(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", statusCode="200", responseParameters={"method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'", "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'", "method.response.header.Access-Control-Allow-Origin": "'*'"})
+    except ClientError as error:
+        if not is_error(error, "ConflictException"):
+            raise
     for response_type in ("DEFAULT_4XX", "DEFAULT_5XX"):
         api.put_gateway_response(
             restApiId=api_id,
@@ -178,6 +199,25 @@ def upload_ui(bucket: str, config: dict) -> None:
     s3.put_object(Bucket=bucket, Key="config.js", Body=f"window.TRAVEL_UI_CONFIG = {json.dumps(config)};\n".encode(), ContentType="application/javascript", CacheControl="no-cache")
 
 
+def publish_native_ui(state: dict, bucket: str, distribution_id: str, ui_client_id: str) -> None:
+    """Publish the direct Cognito sign-in UI and its isolated demo scope."""
+    control = client("bedrock-agentcore-control")
+    control.update_harness(
+        harnessId=state["harness_id"],
+        authorizerConfiguration={"optionalValue": {"customJWTAuthorizer": {
+            "discoveryUrl": state["cognito_discovery_url"],
+            "allowedClients": [state["cognito_client_id"], ui_client_id],
+            "allowedScopes": [state["flights_scope"], state["hotels_scope"], UI_SESSION_SCOPE],
+        }}},
+    )
+    function_arn = ensure_chat_lambda(state["harness_arn"])
+    api_url = ensure_chat_api(state["cognito_user_pool_id"], UI_SESSION_SCOPE, function_arn)
+    upload_ui(bucket, {"region": REGION, "cognitoDomain": state["cognito_domain"], "userPoolClientId": ui_client_id, "apiUrl": api_url, "scopes": ["openid", "profile", "email", state["flights_scope"], state["hotels_scope"]]})
+    client("cloudfront").create_invalidation(DistributionId=distribution_id, InvalidationBatch={"Paths": {"Quantity": 1, "Items": ["/*"]}, "CallerReference": str(time.time())})
+    save_state(ui_bucket=bucket, ui_distribution_id=distribution_id, ui_cognito_client_id=ui_client_id, ui_api_url=api_url, ui_lambda_arn=function_arn)
+    print("Native UI uploaded and CloudFront invalidation requested.")
+
+
 def main() -> None:
     state = load_state()
     required = ["cognito_user_pool_id", "cognito_domain", "flights_scope", "hotels_scope", "harness_arn", "harness_id", "cognito_client_id"]
@@ -192,10 +232,24 @@ def main() -> None:
     ui_client_id = ensure_spa_client(state["cognito_user_pool_id"], app_url, [state["flights_scope"], state["hotels_scope"]])
     ensure_demo_user(state["cognito_user_pool_id"], "matiassantoro", "MatiDemo!2026")
     ensure_demo_user(state["cognito_user_pool_id"], "MateoF01", "MateoDemo!2026")
+    publish_native_ui(state, bucket, distribution_id, ui_client_id)
+    return
     control = client("bedrock-agentcore-control")
     control.update_harness(harnessId=state["harness_id"], authorizerConfiguration={"optionalValue": {"customJWTAuthorizer": {"discoveryUrl": state["cognito_discovery_url"], "allowedClients": [state["cognito_client_id"], ui_client_id], "allowedScopes": [state["flights_scope"], state["hotels_scope"]]}}})
+    # AgentCore serializes Harness changes. The preceding compatibility update
+    # may still be propagating, so wait briefly before applying the UI scope.
+    time.sleep(20)
+    control.update_harness(
+        harnessId=state["harness_id"],
+        authorizerConfiguration={"optionalValue": {"customJWTAuthorizer": {
+            "discoveryUrl": state["cognito_discovery_url"],
+            "allowedClients": [state["cognito_client_id"], ui_client_id],
+            "allowedScopes": [state["flights_scope"], state["hotels_scope"], UI_SESSION_SCOPE],
+        }}},
+    )
     function_arn = ensure_chat_lambda(state["harness_arn"])
     api_url = ensure_chat_api(state["cognito_user_pool_id"], state["flights_scope"], function_arn)
+    api_url = ensure_chat_api(state["cognito_user_pool_id"], UI_SESSION_SCOPE, function_arn)
     upload_ui(bucket, {"region": REGION, "cognitoDomain": state["cognito_domain"], "userPoolClientId": ui_client_id, "apiUrl": api_url, "scopes": ["openid", "profile", "email", state["flights_scope"], state["hotels_scope"]]})
     client("cloudfront").create_invalidation(DistributionId=distribution_id, InvalidationBatch={"Paths": {"Quantity": 1, "Items": ["/*"]}, "CallerReference": str(time.time())})
     save_state(ui_bucket=bucket, ui_distribution_id=distribution_id, ui_url=app_url, ui_cognito_client_id=ui_client_id, ui_api_url=api_url, ui_lambda_arn=function_arn)

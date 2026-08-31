@@ -6,17 +6,27 @@
     <meta name="theme-color" content="#f5f5f7" />
     <title>Viajá | Travel agent</title>
     <link rel="stylesheet" href="app.css" />
+    <style>
+      .login-glow{position:absolute;z-index:-1;inset:-12rem -9rem auto;height:20rem;background:radial-gradient(ellipse,#bad3ff 0%,transparent 66%);filter:blur(12px);opacity:.8}.login-form{text-align:left}.login-form label{display:block;margin:1rem 0 .4rem;color:#3a3a3c;font-size:.8rem;font-weight:650}.login-form input{width:100%;height:3rem;padding:0 .85rem;border:1px solid #d2d2d7;border-radius:.75rem;outline:0;background:rgba(255,255,255,.92);color:#1d1d1f;transition:border-color .18s ease,box-shadow .18s ease}.login-form input:focus{border-color:#007aff;box-shadow:0 0 0 .23rem #007aff25}.password-field{position:relative}.password-field input{padding-right:4.5rem}.password-field button{position:absolute;top:50%;right:.35rem;transform:translateY(-50%);border:0;border-radius:.55rem;padding:.35rem .5rem;background:transparent;color:#007aff;font-size:.78rem;font-weight:650}.password-field button:active{transform:translateY(-50%) scale(.95)}.login-status{min-height:1.3rem;margin:.8rem 0 0;color:#bf3030;font-size:.8rem;text-align:center}.login-status.pending{color:#6e6e73}.login-form .primary-button{width:100%;margin-top:.15rem;border-radius:.82rem}.primary-button:disabled{background:#9ac9ff;box-shadow:none;cursor:wait}
+    </style>
   </head>
   <body>
     <main class="shell">
       <section class="login-card" id="login-view" aria-labelledby="login-title">
-        <div class="orb orb-one"></div><div class="orb orb-two"></div>
+        <div class="login-glow" aria-hidden="true"></div>
         <div class="brand-mark" aria-hidden="true">✦</div>
-        <p class="eyebrow">AGENTCORE TRAVEL</p>
-        <h1 id="login-title">A calmer way to plan a trip.</h1>
-        <p class="lede">Sign in to chat with your protected travel agent and compare flights with stays.</p>
-        <button id="sign-in" class="primary-button">Sign in with Cognito <span>→</span></button>
-        <p class="privacy-note">Your session uses Cognito OAuth and only sends your request to the travel agent.</p>
+        <p class="eyebrow">VIAJÁ · AGENTCORE TRAVEL</p>
+        <h1 id="login-title">Plan the good part.</h1>
+        <p class="lede">Your private travel desk is ready to compare flights and stays.</p>
+        <form id="login-form" class="login-form">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+          <label for="password">Password</label>
+          <div class="password-field"><input id="password" name="password" type="password" autocomplete="current-password" required /><button id="password-toggle" type="button" aria-label="Show password">Show</button></div>
+          <p id="login-status" class="login-status" aria-live="polite"></p>
+          <button id="sign-in" class="primary-button" type="submit">Continue <span aria-hidden="true">→</span></button>
+        </form>
+        <p class="privacy-note">Secured by Cognito. Your password is used only to create this private session.</p>
       </section>
 
       <section class="app-view" id="app-view" hidden aria-label="Travel agent chat">
@@ -29,24 +39,15 @@
             <p class="eyebrow">TRIP BRAIN</p>
             <h2>Make it yours.</h2>
             <label for="model">Model</label>
-            <select id="model">
-              <option value="claude">Claude Sonnet 4.6</option>
-              <option value="nova">Amazon Nova Pro</option>
-            </select>
+            <select id="model"><option value="claude">Claude Sonnet 4.6</option><option value="nova">Amazon Nova Pro</option></select>
             <label for="temperature">Temperature <output id="temperature-value">0.2</output></label>
             <input id="temperature" type="range" min="0" max="1" value="0.2" step="0.1" />
             <p id="model-note" class="setting-note">Balanced creativity with reliable tool calls.</p>
             <div class="tip"><b>Try this</b><span>“Find a nonstop flight from EZE to BRC next Friday and a 4-night hotel for two.”</span></div>
           </aside>
           <section class="conversation">
-            <div id="messages" class="messages" aria-live="polite">
-              <article class="message agent welcome"><p class="eyebrow">YOUR TRAVEL ASSISTANT</p><h2>Where would you like to go?</h2><p>I can combine live demo flights and stays into a simple recommendation.</p></article>
-            </div>
-            <form id="composer" class="composer">
-              <label class="sr-only" for="prompt">Your travel request</label>
-              <textarea id="prompt" rows="1" placeholder="Ask about a trip…" required></textarea>
-              <button class="send-button" type="submit" aria-label="Send request">↑</button>
-            </form>
+            <div id="messages" class="messages" aria-live="polite"><article class="message agent welcome"><p class="eyebrow">YOUR TRAVEL ASSISTANT</p><h2>Where would you like to go?</h2><p>I can combine demo flights and stays into a simple recommendation.</p></article></div>
+            <form id="composer" class="composer"><label class="sr-only" for="prompt">Your travel request</label><textarea id="prompt" rows="1" placeholder="Ask about a trip…" required></textarea><button class="send-button" type="submit" aria-label="Send request">↑</button></form>
           </section>
         </div>
       </section>
@@ -55,5 +56,6 @@
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
     <script src="config.js"></script>
     <script src="app.js"></script>
+    <script src="auth.js"></script>
   </body>
 </html>

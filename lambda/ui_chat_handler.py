@@ -75,8 +75,10 @@ def lambda_handler(event: dict, _context: object) -> dict:
         elif not 0 <= temperature <= 1:
             raise ValueError("temperature must be between 0 and 1")
         authorization = (event.get("headers") or {}).get("Authorization") or (event.get("headers") or {}).get("authorization")
-        if not authorization or not authorization.startswith("Bearer "):
+        if not authorization:
             return response(401, {"message": "Missing Cognito access token"})
+        if not authorization.startswith("Bearer "):
+            authorization = f"Bearer {authorization}"
         invoke_body = json.dumps({
             "maxTokens": 3000,
             "messages": [{"role": "user", "content": [{"text": message}]}],

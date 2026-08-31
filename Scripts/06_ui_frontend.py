@@ -148,6 +148,16 @@ def ensure_chat_api(pool_id: str, scope: str, function_arn: str) -> str:
     api.put_integration(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", type="MOCK", requestTemplates={"application/json": '{"statusCode": 200}'})
     api.put_method_response(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", statusCode="200", responseParameters={"method.response.header.Access-Control-Allow-Headers": False, "method.response.header.Access-Control-Allow-Methods": False, "method.response.header.Access-Control-Allow-Origin": False})
     api.put_integration_response(restApiId=api_id, resourceId=chat["id"], httpMethod="OPTIONS", statusCode="200", responseParameters={"method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'", "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'", "method.response.header.Access-Control-Allow-Origin": "'*'"})
+    for response_type in ("DEFAULT_4XX", "DEFAULT_5XX"):
+        api.put_gateway_response(
+            restApiId=api_id,
+            responseType=response_type,
+            responseParameters={
+                "gatewayresponse.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+                "gatewayresponse.header.Access-Control-Allow-Methods": "'POST,OPTIONS'",
+                "gatewayresponse.header.Access-Control-Allow-Origin": "'*'",
+            },
+        )
     try:
         client("lambda").add_permission(FunctionName=FUNCTION_NAME, StatementId=f"apigateway-{api_id}", Action="lambda:InvokeFunction", Principal="apigateway.amazonaws.com", SourceArn=f"arn:aws:execute-api:{REGION}:{account_id()}:{api_id}/*/POST/chat")
     except ClientError as error:

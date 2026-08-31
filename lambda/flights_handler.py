@@ -46,6 +46,10 @@ def _all_for_route(route):
     return items
 
 
+def _available_seats(item):
+    return int(item.get("availableSeats", item.get("capacity", 0)))
+
+
 def lambda_handler(event, _context):
     """Handles GET /flights and GET /flights/{id} API Gateway proxy events."""
     method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method")
@@ -70,23 +74,31 @@ def lambda_handler(event, _context):
 
         params = _query(event)
         origin, destination, date = params.get("origin"), params.get("destination"), params.get("date")
+        passengers = params.get("passengers")
+        try:
+            passenger_count = int(passengers) if passengers else 1
+            if passenger_count < 1:
+                raise ValueError
+        except ValueError:
+            return _response(400, {"message": "passengers must be a positive integer"})
         if resource_path.endswith("/availability"):
             if not all((origin, destination)):
                 return _response(400, {"message": "origin and destination are required"})
-            items = _all_for_route(f"{origin.upper()}#{destination.upper()}")
+            items = [item for item in _all_for_route(f"{origin.upper()}#{destination.upper()}") if _available_seats(item) >= passenger_count]
             dates = sorted({item.get("departureDate") or item["departureDateFlightId"].split("#", 1)[0] for item in items})
             options = [
                 {
                     "date": available_date,
                     "lowestPrice": min(item["price"] for item in items if (item.get("departureDate") or item["departureDateFlightId"].split("#", 1)[0]) == available_date),
                     "hasNonstop": any(item.get("stops") == 0 for item in items if (item.get("departureDate") or item["departureDateFlightId"].split("#", 1)[0]) == available_date),
+                    "maxAvailableSeats": max(_available_seats(item) for item in items if (item.get("departureDate") or item["departureDateFlightId"].split("#", 1)[0]) == available_date),
                 }
                 for available_date in dates
             ]
-            return _response(200, {"origin": origin.upper(), "destination": destination.upper(), "availableDates": dates, "options": options, "count": len(dates)})
+            return _response(200, {"origin": origin.upper(), "destination": destination.upper(), "passengers": passenger_count, "availableDates": dates, "options": options, "count": len(dates)})
         if not all((origin, destination, date)):
             return _response(400, {"message": "origin, destination and date are required"})
-        items = [item for item in _all_for_route(f"{origin.upper()}#{destination.upper()}") if (item.get("departureDate") or item["departureDateFlightId"].split("#", 1)[0]) == date]
+        items = [item for item in _all_for_route(f"{origin.upper()}#{destination.upper()}") if (item.get("departureDate") or item["departureDateFlightId"].split("#", 1)[0]) == date and _available_seats(item) >= passenger_count]
         max_price, max_stops = params.get("maxPrice"), params.get("maxStops")
         if max_price:
             items = [item for item in items if item.get("price", 0) <= float(max_price)]

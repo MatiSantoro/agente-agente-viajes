@@ -18,9 +18,9 @@ ENDPOINTS = (
         "path_part": "availability",
         "function_name": "agente-agente-viajes-flights",
         "source": ROOT / "lambda" / "flights_handler.py",
-        "parameters": ("origin", "destination"),
+        "parameters": {"origin": True, "destination": True, "passengers": False},
         "target_name": "flights-target",
-        "tool": {"name": "find_available_flight_dates", "description": "Discover only departure dates with connected flight inventory for an origin and destination. Each option includes the lowest price and whether a nonstop option exists.", "path": "/flights/availability", "method": "GET"},
+        "tool": {"name": "find_available_flight_dates", "description": "Discover only departure dates with connected flight inventory for an origin, destination, and passenger count. Each option includes the lowest price, whether a nonstop option exists, and the maximum seats available.", "path": "/flights/availability", "method": "GET"},
     },
     {
         "api_id": "2ekvs712nj",
@@ -28,9 +28,9 @@ ENDPOINTS = (
         "path_part": "availability",
         "function_name": "agente-agente-viajes-hotels",
         "source": ROOT / "lambda" / "hotels_handler.py",
-        "parameters": ("destination",),
+        "parameters": {"destination": True, "guests": False},
         "target_name": "hotels-target",
-        "tool": {"name": "find_available_hotel_checkins", "description": "Discover only connected hotel stays for a destination. Each stay includes exact check-in/check-out, guests, nights, and the lowest nightly price.", "path": "/hotels/availability", "method": "GET"},
+        "tool": {"name": "find_available_hotel_checkins", "description": "Discover only connected hotel stays for a destination and guest count. Each stay includes exact check-in/check-out, maximum room capacity, nights, rooms remaining, and the lowest nightly price.", "path": "/hotels/availability", "method": "GET"},
     },
 )
 
@@ -64,7 +64,7 @@ def ensure_endpoint(config: dict) -> None:
             parentId=by_path[config["parent_path"]]["id"],
             pathPart=config["path_part"],
         )
-    request_parameters = {f"method.request.querystring.{name}": True for name in config["parameters"]}
+    request_parameters = {f"method.request.querystring.{name}": required for name, required in config["parameters"].items()}
     try:
         api.put_method(restApiId=config["api_id"], resourceId=resource["id"], httpMethod="GET", authorizationType="NONE", requestParameters=request_parameters)
     except ClientError as error:
@@ -78,7 +78,7 @@ def ensure_endpoint(config: dict) -> None:
                 restApiId=config["api_id"],
                 resourceId=resource["id"],
                 httpMethod="GET",
-                patchOperations=[{"op": "add", "path": f"/requestParameters/method.request.querystring.{name}", "value": "true"} for name in missing],
+                patchOperations=[{"op": "add", "path": f"/requestParameters/method.request.querystring.{name}", "value": str(config["parameters"][name]).lower()} for name in missing],
             )
     function_arn = client("lambda").get_function(FunctionName=config["function_name"])["Configuration"]["FunctionArn"]
     api.put_integration(
@@ -107,6 +107,22 @@ def ensure_endpoint(config: dict) -> None:
         if not is_error(error, "ResourceConflictException"):
             raise
     api.create_deployment(restApiId=config["api_id"], stageName="prod", description="Expose date availability for travel planning")
+
+
+def ensure_optional_query_parameters(api_id: str, path: str, parameters: tuple[str, ...]) -> None:
+    api = client("apigateway")
+    resources = {item["path"]: item for item in api.get_resources(restApiId=api_id, limit=500)["items"]}
+    method = api.get_method(restApiId=api_id, resourceId=resources[path]["id"], httpMethod="GET")
+    declared = method.get("requestParameters", {})
+    missing = [name for name in parameters if f"method.request.querystring.{name}" not in declared]
+    if missing:
+        api.update_method(
+            restApiId=api_id,
+            resourceId=resources[path]["id"],
+            httpMethod="GET",
+            patchOperations=[{"op": "add", "path": f"/requestParameters/method.request.querystring.{name}", "value": "false"} for name in missing],
+        )
+        api.create_deployment(restApiId=api_id, stageName="prod", description="Document optional travel search parameters")
 
 
 def update_gateway_targets() -> None:
@@ -143,6 +159,7 @@ def main() -> None:
     for endpoint in ENDPOINTS:
         update_lambda(endpoint["function_name"], endpoint["source"])
         ensure_endpoint(endpoint)
+    ensure_optional_query_parameters("5zoo2ck7cf", "/flights", ("passengers",))
     update_gateway_targets()
     print("Availability tools are published and synchronized.")
 

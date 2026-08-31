@@ -52,15 +52,17 @@ El Harness sólo necesita conocer el ARN completo del Gateway. Por eso, cuando s
 
 API REST para buscar opciones de vuelo:
 
-- `GET /flights` — buscar vuelos por origen, destino, fecha y cantidad de pasajeros.
+- `GET /flights` — buscar vuelos por origen, destino, fecha y cantidad de pasajeros; devuelve capacidad y plazas disponibles.
 - `GET /flights/{id}` — obtener el detalle de una opción de vuelo.
+- `GET /flights/availability` — descubrir fechas disponibles para una ruta y cantidad de pasajeros.
 
 ### Hotels
 
 API REST para buscar alojamientos:
 
-- `GET /hotels` — buscar hoteles por destino, fechas de entrada/salida y huéspedes.
+- `GET /hotels` — buscar hoteles por destino, fechas de entrada/salida y huéspedes; una habitación con capacidad mayor también es válida.
 - `GET /hotels/{id}` — obtener el detalle de una opción de alojamiento.
+- `GET /hotels/availability` — descubrir estadías por capacidad de habitación y cantidad de huéspedes.
 
 Ambas APIs se implementarán con AWS Lambda (Python) y Amazon API Gateway REST. Se validan con `curl` antes de conectarlas al Gateway. El agente usa los resultados de ambas para recomendar una combinación coherente de vuelo y hotel.
 

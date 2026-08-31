@@ -46,6 +46,14 @@ def _all_for_destination(destination):
     return items
 
 
+def _max_guests(item):
+    return int(item.get("maxGuests", item.get("guests", 0)))
+
+
+def _rooms_available(item):
+    return int(item.get("roomsAvailable", 1))
+
+
 def lambda_handler(event, _context):
     """Handles GET /hotels and GET /hotels/{id} API Gateway proxy events."""
     method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method")
@@ -74,15 +82,21 @@ def lambda_handler(event, _context):
         if resource_path.endswith("/availability"):
             if not destination:
                 return _response(400, {"message": "destination is required"})
-            items = _all_for_destination(destination.upper())
+            try:
+                guest_count = int(guests) if guests else 1
+                if guest_count < 1:
+                    raise ValueError
+            except ValueError:
+                return _response(400, {"message": "guests must be a positive integer"})
+            items = [item for item in _all_for_destination(destination.upper()) if _max_guests(item) >= guest_count and _rooms_available(item) > 0]
             dates = sorted({item.get("checkIn") or item["checkInHotelId"].split("#", 1)[0] for item in items})
             stays = {}
             for item in items:
-                key = (item.get("checkIn"), item.get("checkOut"), item.get("guests"), item.get("nights"))
+                key = (item.get("checkIn"), item.get("checkOut"), _max_guests(item), item.get("nights"))
                 existing = stays.get(key)
                 if not existing or item.get("pricePerNight", 0) < existing.get("lowestPricePerNight", 0):
-                    stays[key] = {"checkIn": key[0], "checkOut": key[1], "guests": key[2], "nights": key[3], "lowestPricePerNight": item.get("pricePerNight"), "currency": item.get("currency", "USD")}
-            return _response(200, {"destination": destination.upper(), "availableCheckIns": dates, "stays": sorted(stays.values(), key=lambda stay: (stay["checkIn"], stay["guests"], stay["lowestPricePerNight"])), "count": len(dates)})
+                    stays[key] = {"checkIn": key[0], "checkOut": key[1], "maxGuests": key[2], "nights": key[3], "lowestPricePerNight": item.get("pricePerNight"), "currency": item.get("currency", "USD"), "roomsAvailable": _rooms_available(item)}
+            return _response(200, {"destination": destination.upper(), "guests": guest_count, "availableCheckIns": dates, "stays": sorted(stays.values(), key=lambda stay: (stay["checkIn"], stay["maxGuests"], stay["lowestPricePerNight"])), "count": len(dates)})
         if not all((destination, check_in, check_out, guests)):
             return _response(400, {"message": "destination, checkIn, checkOut and guests are required"})
         try:
@@ -94,7 +108,7 @@ def lambda_handler(event, _context):
             KeyConditionExpression=Key("destination").eq(destination.upper())
             & Key("checkInHotelId").begins_with(check_in)
         )
-        items = [item for item in result.get("Items", []) if item.get("checkOut") == check_out and int(item.get("guests", 0)) >= int(guests)]
+        items = [item for item in result.get("Items", []) if item.get("checkOut") == check_out and _max_guests(item) >= int(guests) and _rooms_available(item) > 0]
         items.sort(key=lambda item: (item.get("pricePerNight", 0), -item.get("rating", 0)))
         return _response(200, {"items": items, "count": len(items)})
     except Exception:

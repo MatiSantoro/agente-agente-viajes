@@ -19,6 +19,7 @@ MODEL_CONFIGS = {
     "kimi": "moonshotai.kimi-k2.5",
     "deepseek": "deepseek.v3.2",
 }
+EXPERIMENTAL_MODELS = {"qwen", "kimi", "deepseek"}
 
 
 def response(status_code: int, body: dict) -> dict:
@@ -91,6 +92,8 @@ def lambda_handler(event: dict, _context: object) -> dict:
             raise ValueError("Unsupported model")
         if model_name == "nova":
             temperature = 0
+        elif model_name in EXPERIMENTAL_MODELS and not 0 <= temperature <= 0.3:
+            raise ValueError("experimental models require a temperature between 0 and 0.3")
         elif not 0 <= temperature <= 1:
             raise ValueError("temperature must be between 0 and 1")
         authorization = (event.get("headers") or {}).get("Authorization") or (event.get("headers") or {}).get("authorization")

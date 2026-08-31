@@ -23,14 +23,14 @@ function addMessage(kind, content, markdown = false) { const el = document.creat
 const modelNotes = {
   claude: 'Balanced creativity with reliable tool calls.',
   nova: 'Nova uses temperature 0 for reliable AgentCore tool invocation.',
-  qwen: 'Experimental: use a low temperature for grounded tool calls.',
-  kimi: 'Experimental: use a low temperature for grounded tool calls.',
-  deepseek: 'Experimental: use a low temperature for grounded tool calls.',
+  qwen: 'Experimental: limited to 0.3 for grounded tool calls.',
+  kimi: 'Experimental: limited to 0.3 for grounded tool calls.',
+  deepseek: 'Experimental: limited to 0.3 for grounded tool calls.',
 };
-function setModelState() { const nova = modelInput.value === 'nova'; temperatureInput.disabled = nova; temperatureInput.value = nova ? '0' : temperatureInput.value || '0.2'; temperatureValue.value = temperatureInput.value; modelNote.textContent = modelNotes[modelInput.value]; }
+function setModelState(reset = false) { const experimental = ['qwen', 'kimi', 'deepseek'].includes(modelInput.value); const nova = modelInput.value === 'nova'; temperatureInput.disabled = nova; temperatureInput.max = experimental ? '0.3' : '1'; if (nova || (experimental && (reset || Number(temperatureInput.value) > 0.3))) temperatureInput.value = '0'; else if (reset) temperatureInput.value = '0.2'; temperatureValue.value = temperatureInput.value; modelNote.textContent = modelNotes[modelInput.value]; }
 function autoSize() { promptInput.style.height = 'auto'; promptInput.style.height = `${Math.min(promptInput.scrollHeight, 160)}px`; }
 async function submit(event) { event.preventDefault(); const text = promptInput.value.trim(); if (!text) return; addMessage('user', text); promptInput.value = ''; autoSize(); const submitButton = form.querySelector('button'); submitButton.disabled = true; const pending = addMessage('agent', '<div class="thinking"><i></i><i></i><i></i> Planning your trip</div>', true); try { const response = await fetch(config.apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: token() }, body: JSON.stringify({ message: text, sessionId: sessionId(), model: modelInput.value, temperature: Number(temperatureInput.value) }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message || 'The agent could not complete that request.'); pending.remove(); addMessage('agent', data.markdown, true); } catch (error) { pending.remove(); addMessage('agent', `I couldn’t complete that: ${error.message}`); } finally { submitButton.disabled = false; promptInput.focus(); } }
 function openApp() { loginView.hidden = true; appView.hidden = false; sessionId(); promptInput.focus(); }
 if (token()) openApp();
 window.travelUi = { openApp, store };
-document.querySelector('#sign-out').addEventListener('click', () => { store.clear(); location.reload(); }); form.addEventListener('submit', submit); promptInput.addEventListener('input', autoSize); modelInput.addEventListener('change', setModelState); temperatureInput.addEventListener('input', setModelState); setModelState();
+document.querySelector('#sign-out').addEventListener('click', () => { store.clear(); location.reload(); }); form.addEventListener('submit', submit); promptInput.addEventListener('input', autoSize); modelInput.addEventListener('change', () => setModelState(true)); temperatureInput.addEventListener('input', () => setModelState()); setModelState();

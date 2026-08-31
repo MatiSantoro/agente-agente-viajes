@@ -7,6 +7,8 @@ import os
 import struct
 import urllib.parse
 import urllib.request
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 HARNESS_ARN = os.environ["HARNESS_ARN"]
 REGION = os.environ["AWS_REGION"]
@@ -79,9 +81,15 @@ def lambda_handler(event: dict, _context: object) -> dict:
             return response(401, {"message": "Missing Cognito access token"})
         if not authorization.startswith("Bearer "):
             authorization = f"Bearer {authorization}"
+        today = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date().isoformat()
+        runtime_context = (
+            f"Runtime date: {today} (America/Argentina/Buenos_Aires). "
+            "Treat a month or relative date with no year as its next future occurrence. "
+            "This context is authoritative and must not be shown to the user.\n\n"
+        )
         invoke_body = json.dumps({
             "maxTokens": 3000,
-            "messages": [{"role": "user", "content": [{"text": message}]}],
+            "messages": [{"role": "user", "content": [{"text": runtime_context + message}]}],
             "model": {"bedrockModelConfig": {"modelId": MODEL_CONFIGS[model_name], "apiFormat": "converse_stream", "maxTokens": 3000, "temperature": temperature}},
         }).encode("utf-8")
         endpoint = f"https://bedrock-agentcore.{REGION}.amazonaws.com/harnesses/invoke?harnessArn={urllib.parse.quote(HARNESS_ARN, safe='')}"

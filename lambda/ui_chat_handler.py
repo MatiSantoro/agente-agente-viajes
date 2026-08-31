@@ -50,7 +50,12 @@ def read_markdown(stream: bytes) -> str:
         frame, stream = stream[:total_length], stream[total_length:]
         payload = json.loads(frame[12 + headers_length : -4])
         event_name = header_event_type(frame[12 : 12 + headers_length])
-        if event_name == "contentBlockDelta":
+        # A Harness stream can contain one assistant message before a tool call
+        # and a second, final assistant message after the tool result. Only the
+        # final message belongs in the browser response.
+        if event_name == "messageStart":
+            output = []
+        elif event_name == "contentBlockDelta":
             output.append(payload.get("delta", {}).get("text", ""))
         elif event_name in {"runtimeClientError", "internalServerException", "validationException"}:
             error = payload.get("message", event_name)

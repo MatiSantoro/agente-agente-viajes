@@ -13,7 +13,7 @@ import requests
 
 from common import REGION, client, load_state
 
-PROMPT = "Find a flight from EZE to BRC on 2026-09-10 and a compatible hotel for two guests for four nights. Recommend one combination."
+PROMPT = "Quiero viajar desde Buenos Aires a Mendoza en septiembre de 2026. Somos 2 personas y podemos quedarnos hasta 4 noches. Buscá solamente opciones que existan en los datos conectados y recomendame la de mejor precio."
 
 
 def event_type(headers: bytes) -> str:

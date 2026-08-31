@@ -34,6 +34,18 @@ def _query(event):
     return event.get("queryStringParameters") or {}
 
 
+def _all_for_destination(destination):
+    result = TABLE.query(KeyConditionExpression=Key("destination").eq(destination))
+    items = result.get("Items", [])
+    while result.get("LastEvaluatedKey"):
+        result = TABLE.query(
+            KeyConditionExpression=Key("destination").eq(destination),
+            ExclusiveStartKey=result["LastEvaluatedKey"],
+        )
+        items.extend(result.get("Items", []))
+    return items
+
+
 def lambda_handler(event, _context):
     """Handles GET /hotels and GET /hotels/{id} API Gateway proxy events."""
     method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method")
@@ -42,6 +54,7 @@ def lambda_handler(event, _context):
     if method != "GET":
         return _response(405, {"message": "Only GET is supported"})
 
+    resource_path = event.get("resource") or event.get("requestContext", {}).get("resourcePath", "")
     hotel_id = (event.get("pathParameters") or {}).get("id")
     try:
         if hotel_id:
@@ -58,6 +71,18 @@ def lambda_handler(event, _context):
         params = _query(event)
         destination, check_in = params.get("destination"), params.get("checkIn")
         check_out, guests = params.get("checkOut"), params.get("guests")
+        if resource_path.endswith("/availability"):
+            if not destination:
+                return _response(400, {"message": "destination is required"})
+            items = _all_for_destination(destination.upper())
+            dates = sorted({item.get("checkIn") or item["checkInHotelId"].split("#", 1)[0] for item in items})
+            stays = {}
+            for item in items:
+                key = (item.get("checkIn"), item.get("checkOut"), item.get("guests"), item.get("nights"))
+                existing = stays.get(key)
+                if not existing or item.get("pricePerNight", 0) < existing.get("lowestPricePerNight", 0):
+                    stays[key] = {"checkIn": key[0], "checkOut": key[1], "guests": key[2], "nights": key[3], "lowestPricePerNight": item.get("pricePerNight"), "currency": item.get("currency", "USD")}
+            return _response(200, {"destination": destination.upper(), "availableCheckIns": dates, "stays": sorted(stays.values(), key=lambda stay: (stay["checkIn"], stay["guests"], stay["lowestPricePerNight"])), "count": len(dates)})
         if not all((destination, check_in, check_out, guests)):
             return _response(400, {"message": "destination, checkIn, checkOut and guests are required"})
         try:
@@ -69,7 +94,9 @@ def lambda_handler(event, _context):
             KeyConditionExpression=Key("destination").eq(destination.upper())
             & Key("checkInHotelId").begins_with(check_in)
         )
-        return _response(200, {"items": result.get("Items", []), "count": result.get("Count", 0)})
+        items = [item for item in result.get("Items", []) if item.get("checkOut") == check_out and int(item.get("guests", 0)) >= int(guests)]
+        items.sort(key=lambda item: (item.get("pricePerNight", 0), -item.get("rating", 0)))
+        return _response(200, {"items": items, "count": len(items)})
     except Exception:
         LOG.exception("Hotels data access failed")
         return _response(500, {"message": "Unable to retrieve hotels"})

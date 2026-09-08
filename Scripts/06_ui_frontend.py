@@ -206,13 +206,13 @@ def publish_native_ui(state: dict, bucket: str, distribution_id: str, ui_client_
         harnessId=state["harness_id"],
         authorizerConfiguration={"optionalValue": {"customJWTAuthorizer": {
             "discoveryUrl": state["cognito_discovery_url"],
-            "allowedClients": [state["cognito_client_id"], ui_client_id],
-            "allowedScopes": [state["flights_scope"], state["hotels_scope"], UI_SESSION_SCOPE],
+            "allowedClients": [state["platform_gateway_client_id"], ui_client_id],
+            "allowedScopes": [state["platform_gateway_scope"], UI_SESSION_SCOPE],
         }}},
     )
     function_arn = ensure_chat_lambda(state["harness_arn"])
     api_url = ensure_chat_api(state["cognito_user_pool_id"], UI_SESSION_SCOPE, function_arn)
-    upload_ui(bucket, {"region": REGION, "cognitoDomain": state["cognito_domain"], "userPoolClientId": ui_client_id, "apiUrl": api_url, "scopes": ["openid", "profile", "email", state["flights_scope"], state["hotels_scope"]]})
+    upload_ui(bucket, {"region": REGION, "cognitoDomain": state["cognito_domain"], "userPoolClientId": ui_client_id, "apiUrl": api_url, "scopes": ["openid", "profile", "email", state["platform_gateway_scope"]]})
     client("cloudfront").create_invalidation(DistributionId=distribution_id, InvalidationBatch={"Paths": {"Quantity": 1, "Items": ["/*"]}, "CallerReference": str(time.time())})
     save_state(ui_bucket=bucket, ui_distribution_id=distribution_id, ui_cognito_client_id=ui_client_id, ui_api_url=api_url, ui_lambda_arn=function_arn)
     print("Native UI uploaded and CloudFront invalidation requested.")
@@ -220,7 +220,7 @@ def publish_native_ui(state: dict, bucket: str, distribution_id: str, ui_client_
 
 def main() -> None:
     state = load_state()
-    required = ["cognito_user_pool_id", "cognito_domain", "flights_scope", "hotels_scope", "harness_arn", "harness_id", "cognito_client_id"]
+    required = ["cognito_user_pool_id", "cognito_domain", "harness_arn", "harness_id", "platform_gateway_client_id", "platform_gateway_scope"]
     missing = [key for key in required if key not in state]
     if missing:
         raise RuntimeError(f"Run Scripts/01–03 first; missing {missing}")
@@ -229,32 +229,10 @@ def main() -> None:
     ensure_bucket(bucket)
     distribution_id, distribution_domain = ensure_distribution(bucket)
     app_url = f"https://{distribution_domain}/"
-    ui_client_id = ensure_spa_client(state["cognito_user_pool_id"], app_url, [state["flights_scope"], state["hotels_scope"]])
+    ui_client_id = ensure_spa_client(state["cognito_user_pool_id"], app_url, [state["platform_gateway_scope"]])
     ensure_demo_user(state["cognito_user_pool_id"], "matiassantoro", "MatiDemo!2026")
     ensure_demo_user(state["cognito_user_pool_id"], "MateoF01", "MateoDemo!2026")
     publish_native_ui(state, bucket, distribution_id, ui_client_id)
-    return
-    control = client("bedrock-agentcore-control")
-    control.update_harness(harnessId=state["harness_id"], authorizerConfiguration={"optionalValue": {"customJWTAuthorizer": {"discoveryUrl": state["cognito_discovery_url"], "allowedClients": [state["cognito_client_id"], ui_client_id], "allowedScopes": [state["flights_scope"], state["hotels_scope"]]}}})
-    # AgentCore serializes Harness changes. The preceding compatibility update
-    # may still be propagating, so wait briefly before applying the UI scope.
-    time.sleep(20)
-    control.update_harness(
-        harnessId=state["harness_id"],
-        authorizerConfiguration={"optionalValue": {"customJWTAuthorizer": {
-            "discoveryUrl": state["cognito_discovery_url"],
-            "allowedClients": [state["cognito_client_id"], ui_client_id],
-            "allowedScopes": [state["flights_scope"], state["hotels_scope"], UI_SESSION_SCOPE],
-        }}},
-    )
-    function_arn = ensure_chat_lambda(state["harness_arn"])
-    api_url = ensure_chat_api(state["cognito_user_pool_id"], state["flights_scope"], function_arn)
-    api_url = ensure_chat_api(state["cognito_user_pool_id"], UI_SESSION_SCOPE, function_arn)
-    upload_ui(bucket, {"region": REGION, "cognitoDomain": state["cognito_domain"], "userPoolClientId": ui_client_id, "apiUrl": api_url, "scopes": ["openid", "profile", "email", state["flights_scope"], state["hotels_scope"]]})
-    client("cloudfront").create_invalidation(DistributionId=distribution_id, InvalidationBatch={"Paths": {"Quantity": 1, "Items": ["/*"]}, "CallerReference": str(time.time())})
-    save_state(ui_bucket=bucket, ui_distribution_id=distribution_id, ui_url=app_url, ui_cognito_client_id=ui_client_id, ui_api_url=api_url, ui_lambda_arn=function_arn)
-    print(f"UI URL: {app_url}")
-    print("Demo users: matiassantoro / MatiDemo!2026; MateoF01 / MateoDemo!2026")
 
 
 if __name__ == "__main__":

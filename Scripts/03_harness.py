@@ -10,6 +10,7 @@ MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 MODEL_MAX_TOKENS = 3000
 MODEL_TEMPERATURE = 0
 MAX_ITERATIONS = 8
+UI_SESSION_SCOPE = "aws.cognito.signin.user.admin"
 SYSTEM_PROMPT = """You are Viajá, a reliable travel-planning assistant. Reply in the user's language.
 
 Your capabilities are defined exclusively by the tools available in this session. Read their descriptions and schemas before using them. Tool results are the source of truth: never invent availability, prices, schedules, policies, ratings, locations, dates, or market claims. The runtime context provides today's date; resolve a month or relative date with no year to its next future occurrence.
@@ -29,10 +30,26 @@ def find_harness() -> str | None:
 def main() -> None:
     control = client("bedrock-agentcore-control")
     state = load_state()
-    required = ["gateway_arn", "credential_provider_arn", "flights_scope", "hotels_scope", "cognito_discovery_url", "cognito_client_id"]
+    required = ["gateway_arn", "platform_gateway_oauth_provider_arn", "platform_gateway_scope", "platform_gateway_client_id"]
     missing = [key for key in required if key not in state]
     if missing:
         raise RuntimeError(f"Run 01 and 02 first; missing {missing}")
+    # Harness is called by the signed-in UI user and by the platform M2M
+    # client used for CLI smoke tests. The old travel-api scopes belonged to
+    # the retired resource server and must not remain here.
+    allowed_clients = [state["platform_gateway_client_id"]]
+    if state.get("ui_cognito_client_id"):
+        allowed_clients.append(state["ui_cognito_client_id"])
+    allowed_clients = list(dict.fromkeys(allowed_clients))
+    allowed_scopes = [state["platform_gateway_scope"], UI_SESSION_SCOPE]
+    desired_authorizer = {
+        "customJWTAuthorizer": {
+            "discoveryUrl": state["cognito_discovery_url"],
+            "allowedClients": allowed_clients,
+            "allowedScopes": allowed_scopes,
+        }
+    }
+    authorizer_request = {"optionalValue": desired_authorizer}
     account = account_id()
     role_arn = ensure_role(
         ROLE_NAME,
@@ -47,13 +64,17 @@ def main() -> None:
                     "Effect": "Allow",
                     "Action": "bedrock-agentcore:GetResourceOauth2Token",
                     "Resource": [
-                        state["credential_provider_arn"],
+                        state["platform_gateway_oauth_provider_arn"],
                         f"arn:aws:bedrock-agentcore:{REGION}:{account}:token-vault/default",
                         f"arn:aws:bedrock-agentcore:{REGION}:{account}:workload-identity-directory/default",
                         f"arn:aws:bedrock-agentcore:{REGION}:{account}:workload-identity-directory/default/workload-identity/harness_{HARNESS_NAME}-*",
                     ],
                 },
-                {"Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": f"arn:aws:secretsmanager:{REGION}:{account}:secret:bedrock-agentcore-identity!default/oauth2/travel_cognito_oauth*"},
+                {
+                    "Effect": "Allow",
+                    "Action": "secretsmanager:GetSecretValue",
+                    "Resource": f"arn:aws:secretsmanager:{REGION}:{account}:secret:bedrock-agentcore-identity!default/oauth2/travel_agent_platform_gateway_oauth-*",
+                },
             ],
         },
     )
@@ -64,8 +85,8 @@ def main() -> None:
             executionRoleArn=role_arn,
             model={"bedrockModelConfig": {"modelId": MODEL_ID, "apiFormat": "converse_stream", "maxTokens": MODEL_MAX_TOKENS, "temperature": MODEL_TEMPERATURE}},
             systemPrompt=[{"text": SYSTEM_PROMPT}],
-            tools=[{"type": "agentcore_gateway", "name": "travel_gateway", "config": {"agentCoreGateway": {"gatewayArn": state["gateway_arn"], "outboundAuth": {"oauth": {"providerArn": state["credential_provider_arn"], "grantType": "CLIENT_CREDENTIALS", "scopes": [state["flights_scope"], state["hotels_scope"]]}}}}}],
-            authorizerConfiguration={"customJWTAuthorizer": {"discoveryUrl": state["cognito_discovery_url"], "allowedClients": [state["cognito_client_id"]], "allowedScopes": [state["flights_scope"], state["hotels_scope"]]}},
+            tools=[{"type": "agentcore_gateway", "name": "travel_gateway", "config": {"agentCoreGateway": {"gatewayArn": state["gateway_arn"], "outboundAuth": {"oauth": {"providerArn": state["platform_gateway_oauth_provider_arn"], "grantType": "CLIENT_CREDENTIALS", "scopes": [state["platform_gateway_scope"]]}}}}}],
+            authorizerConfiguration=authorizer_request,
             memory={"disabled": {}},
             maxIterations=MAX_ITERATIONS,
             maxTokens=MODEL_MAX_TOKENS,
@@ -86,8 +107,13 @@ def main() -> None:
         changes["maxTokens"] = MODEL_MAX_TOKENS
     if ready.get("maxIterations") != MAX_ITERATIONS:
         changes["maxIterations"] = MAX_ITERATIONS
+    if ready.get("authorizerConfiguration") != desired_authorizer:
+        changes["authorizerConfiguration"] = authorizer_request
     if ready.get("systemPrompt") != [{"text": SYSTEM_PROMPT}]:
         changes["systemPrompt"] = [{"text": SYSTEM_PROMPT}]
+    desired_tools = [{"type": "agentcore_gateway", "name": "travel_gateway", "config": {"agentCoreGateway": {"gatewayArn": state["gateway_arn"], "outboundAuth": {"oauth": {"providerArn": state["platform_gateway_oauth_provider_arn"], "grantType": "CLIENT_CREDENTIALS", "scopes": [state["platform_gateway_scope"]]}}}}}]
+    if ready.get("tools") != desired_tools:
+        changes["tools"] = desired_tools
     if changes:
         control.update_harness(harnessId=harness_id, **changes)
         ready = wait_for(lambda identifier: control.get_harness(harnessId=identifier)["harness"], harness_id)

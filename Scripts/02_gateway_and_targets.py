@@ -75,11 +75,39 @@ def main() -> None:
     if missing:
         raise RuntimeError(f"Run 01_cognito_identity.py first; missing {missing}")
     account = account_id()
+    gateway_workload_identity = state.get("gateway_id", "travel-gateway-*")
+    oauth_provider_resources = [
+        state["credential_provider_arn"],
+        *([state["platform_gateway_oauth_provider_arn"]] if state.get("platform_gateway_oauth_provider_arn") else []),
+        *state.get("external_provider_oauth_provider_arns", {}).values(),
+        f"arn:aws:bedrock-agentcore:{state['region']}:{account}:token-vault/default",
+        f"arn:aws:bedrock-agentcore:{state['region']}:{account}:workload-identity-directory/default",
+        f"arn:aws:bedrock-agentcore:{state['region']}:{account}:workload-identity-directory/default/workload-identity/{gateway_workload_identity}",
+    ]
     role_arn = ensure_role(
         ROLE_NAME,
         {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "bedrock-agentcore.amazonaws.com"}, "Action": "sts:AssumeRole"}]},
         "InvokeTravelApis",
-        {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "execute-api:Invoke", "Resource": [f"arn:aws:execute-api:{state['region']}:{account}:{FLIGHTS_API_ID}/prod/*", f"arn:aws:execute-api:{state['region']}:{account}:{HOTELS_API_ID}/prod/*"]}]},
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "LegacyDirectApiGatewayAccessDuringMigration",
+                    "Effect": "Allow",
+                    "Action": "execute-api:Invoke",
+                    "Resource": [
+                        f"arn:aws:execute-api:{state['region']}:{account}:{FLIGHTS_API_ID}/prod/*",
+                        f"arn:aws:execute-api:{state['region']}:{account}:{HOTELS_API_ID}/prod/*",
+                    ],
+                },
+                {
+                    "Sid": "RetrieveOAuthCredentialsForGatewayTargets",
+                    "Effect": "Allow",
+                    "Action": "bedrock-agentcore:GetResourceOauth2Token",
+                    "Resource": oauth_provider_resources,
+                },
+            ],
+        },
     )
     gateway_arn = state.get("gateway_arn")
     gateway_id = state.get("gateway_id") or find_gateway()

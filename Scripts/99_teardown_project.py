@@ -46,6 +46,10 @@ USER_POOLS = {
     "us-east-1_ts7h7e63I": "agente-agente-viajes",
     "us-east-1_xwX7tSGtI": "agente-agente-viajes-external-travel-provider",
 }
+USER_POOL_DOMAINS = {
+    "us-east-1_ts7h7e63I": "agente-agente-viajes-239248123204",
+    "us-east-1_xwX7tSGtI": "agente-agente-viajes-external-provider-239248123204",
+}
 OAUTH_PROVIDERS = (
     "external_travel_flights_oauth",
     "external_travel_hotels_oauth",
@@ -208,6 +212,11 @@ def validate_plan() -> list[tuple[str, str, bool]]:
                 raise RuntimeError(f"Cognito pool {pool_id} now belongs to {pool.get('Name')!r}; stopping")
             verify_project_tag(cognito_tags(pool["Arn"]), f"Cognito User Pool {pool_id}")
         plan.append(("Cognito User Pool", f"{pool_id} ({expected_name})", pool is not None))
+        domain_response = maybe(cognito.describe_user_pool_domain, Domain=USER_POOL_DOMAINS[pool_id])
+        domain = domain_response.get("DomainDescription", {}) if domain_response else {}
+        if domain.get("UserPoolId") and domain["UserPoolId"] != pool_id:
+            raise RuntimeError(f"Cognito domain {USER_POOL_DOMAINS[pool_id]} is attached to a different User Pool; stopping")
+        plan.append(("Cognito hosted domain", USER_POOL_DOMAINS[pool_id], domain.get("UserPoolId") == pool_id))
 
     cloudfront = client("cloudfront")
     distribution = maybe(cloudfront.get_distribution, Id=CF_DISTRIBUTION_ID)
@@ -417,6 +426,19 @@ def delete_remaining_resources() -> None:
             dynamodb.get_waiter("table_not_exists").wait(TableName=name)
 
     cognito = client("cognito-idp")
+    for pool_id, domain_name in USER_POOL_DOMAINS.items():
+        response = maybe(cognito.describe_user_pool_domain, Domain=domain_name)
+        domain = response.get("DomainDescription", {}) if response else {}
+        if domain.get("UserPoolId") == pool_id and domain.get("Status") != "DELETING":
+            retry_throttled(cognito.delete_user_pool_domain, Domain=domain_name)
+        if domain.get("UserPoolId") == pool_id:
+            wait_until(
+                f"Cognito domain {domain_name} deletion",
+                lambda: (maybe(cognito.describe_user_pool_domain, Domain=domain_name) or {}).get("DomainDescription", {}).get("UserPoolId") != pool_id,
+                attempts=90,
+                delay=10,
+            )
+
     for pool_id, expected_name in USER_POOLS.items():
         response = maybe(cognito.describe_user_pool, UserPoolId=pool_id)
         pool = response.get("UserPool") if response else None

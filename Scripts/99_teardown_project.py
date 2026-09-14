@@ -430,7 +430,7 @@ def delete_remaining_resources() -> None:
         response = maybe(cognito.describe_user_pool_domain, Domain=domain_name)
         domain = response.get("DomainDescription", {}) if response else {}
         if domain.get("UserPoolId") == pool_id and domain.get("Status") != "DELETING":
-            retry_throttled(cognito.delete_user_pool_domain, Domain=domain_name)
+            retry_throttled(cognito.delete_user_pool_domain, Domain=domain_name, UserPoolId=pool_id)
         if domain.get("UserPoolId") == pool_id:
             wait_until(
                 f"Cognito domain {domain_name} deletion",

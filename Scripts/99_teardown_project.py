@@ -299,33 +299,32 @@ def delete_cloudfront_and_bucket() -> None:
 
 def delete_agentcore_resources() -> None:
     control = client("bedrock-agentcore-control")
-    endpoint_token = None
-    endpoints = []
-    while True:
-        args = {"harnessId": HARNESS_ID, "maxResults": 100}
-        if endpoint_token:
-            args["nextToken"] = endpoint_token
-        page = control.list_harness_endpoints(**args)
-        endpoints.extend(page.get("endpoints", []))
-        endpoint_token = page.get("nextToken")
-        if not endpoint_token:
-            break
-    for endpoint in endpoints:
-        name = endpoint.get("name") or endpoint.get("endpointName")
-        if not name:
-            raise RuntimeError(f"Cannot identify a Harness endpoint for deletion: {endpoint}")
-        if name.upper() == "DEFAULT":
-            # AWS removes the mandatory DEFAULT endpoint together with its Harness.
-            continue
-        maybe(control.delete_harness_endpoint, harnessId=HARNESS_ID, endpointName=name)
-        wait_until(
-            f"Harness endpoint {name} deletion",
-            lambda: maybe(control.get_harness_endpoint, harnessId=HARNESS_ID, endpointName=name) is None,
-            attempts=60,
-            delay=5,
-        )
-
     if maybe(control.get_harness, harnessId=HARNESS_ID):
+        endpoint_token = None
+        endpoints = []
+        while True:
+            args = {"harnessId": HARNESS_ID, "maxResults": 100}
+            if endpoint_token:
+                args["nextToken"] = endpoint_token
+            page = control.list_harness_endpoints(**args)
+            endpoints.extend(page.get("endpoints", []))
+            endpoint_token = page.get("nextToken")
+            if not endpoint_token:
+                break
+        for endpoint in endpoints:
+            name = endpoint.get("name") or endpoint.get("endpointName")
+            if not name:
+                raise RuntimeError(f"Cannot identify a Harness endpoint for deletion: {endpoint}")
+            if name.upper() == "DEFAULT":
+                # AWS removes the mandatory DEFAULT endpoint together with its Harness.
+                continue
+            maybe(control.delete_harness_endpoint, harnessId=HARNESS_ID, endpointName=name)
+            wait_until(
+                f"Harness endpoint {name} deletion",
+                lambda: maybe(control.get_harness_endpoint, harnessId=HARNESS_ID, endpointName=name) is None,
+                attempts=60,
+                delay=5,
+            )
         control.delete_harness(harnessId=HARNESS_ID, deleteManagedMemory=True)
         wait_until(
             f"Harness {HARNESS_ID} deletion",

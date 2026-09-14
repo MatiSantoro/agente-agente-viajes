@@ -88,6 +88,20 @@ def maybe(call: Callable, *args, **kwargs):
         raise
 
 
+def retry_throttled(call: Callable, *args, **kwargs):
+    throttle_codes = {"TooManyRequestsException", "ThrottlingException", "Throttling", "RequestLimitExceeded", "LimitExceededException"}
+    for attempt in range(8):
+        try:
+            return call(*args, **kwargs)
+        except ClientError as error:
+            code = error.response.get("Error", {}).get("Code")
+            if code not in throttle_codes or attempt == 7:
+                raise
+            delay = min(5 * (2**attempt), 60)
+            print(f"  AWS throttled {call.__name__}; retrying in {delay}s")
+            time.sleep(delay)
+
+
 def verify_project_tag(tags: dict[str, str], what: str) -> None:
     if tags.get("Project") != PROJECT_TAG:
         raise RuntimeError(f"Refusing to delete {what}: Project tag is {tags.get('Project')!r}, expected {PROJECT_TAG!r}")
@@ -382,7 +396,8 @@ def delete_remaining_resources() -> None:
             if api.get("name") != expected_name:
                 raise RuntimeError(f"API Gateway {api_id} identity changed during teardown; stopping")
             verify_project_tag(api.get("tags", {}), f"API Gateway {api_id}")
-            apigw.delete_rest_api(restApiId=api_id)
+            retry_throttled(apigw.delete_rest_api, restApiId=api_id)
+            time.sleep(3)
 
     lam = client("lambda")
     for name, expected_role in FUNCTIONS.items():
@@ -390,7 +405,7 @@ def delete_remaining_resources() -> None:
         if function:
             if not function["Configuration"].get("Role", "").endswith(f":role/{expected_role}"):
                 raise RuntimeError(f"Lambda {name} role changed during teardown; stopping")
-            lam.delete_function(FunctionName=name)
+            retry_throttled(lam.delete_function, FunctionName=name)
 
     dynamodb = client("dynamodb")
     for name in TABLES:
@@ -398,7 +413,7 @@ def delete_remaining_resources() -> None:
         if table:
             tags = {item["Key"]: item["Value"] for item in dynamodb.list_tags_of_resource(ResourceArn=table["Table"]["TableArn"]).get("Tags", [])}
             verify_project_tag(tags, f"DynamoDB table {name}")
-            dynamodb.delete_table(TableName=name)
+            retry_throttled(dynamodb.delete_table, TableName=name)
             dynamodb.get_waiter("table_not_exists").wait(TableName=name)
 
     cognito = client("cognito-idp")
@@ -409,11 +424,11 @@ def delete_remaining_resources() -> None:
             if pool.get("Name") != expected_name:
                 raise RuntimeError(f"Cognito pool {pool_id} identity changed during teardown; stopping")
             verify_project_tag(cognito_tags(pool["Arn"]), f"Cognito User Pool {pool_id}")
-            cognito.delete_user_pool(UserPoolId=pool_id)
+            retry_throttled(cognito.delete_user_pool, UserPoolId=pool_id)
 
     logs = client("logs")
     for name in LOG_GROUPS:
-        maybe(logs.delete_log_group, logGroupName=name)
+        retry_throttled(logs.delete_log_group, logGroupName=name)
 
     iam = client("iam")
     for role_name in IAM_ROLES:
@@ -423,16 +438,16 @@ def delete_remaining_resources() -> None:
         # Detach project-role references but preserve any unrelated shared profile.
         for page in iam.get_paginator("list_instance_profiles_for_role").paginate(RoleName=role_name):
             for profile in page.get("InstanceProfiles", []):
-                iam.remove_role_from_instance_profile(InstanceProfileName=profile["InstanceProfileName"], RoleName=role_name)
+                retry_throttled(iam.remove_role_from_instance_profile, InstanceProfileName=profile["InstanceProfileName"], RoleName=role_name)
         for page in iam.get_paginator("list_role_policies").paginate(RoleName=role_name):
             for policy_name in page.get("PolicyNames", []):
-                iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+                retry_throttled(iam.delete_role_policy, RoleName=role_name, PolicyName=policy_name)
         for page in iam.get_paginator("list_attached_role_policies").paginate(RoleName=role_name):
             for policy in page.get("AttachedPolicies", []):
-                iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
+                retry_throttled(iam.detach_role_policy, RoleName=role_name, PolicyArn=policy["PolicyArn"])
         if role["Role"].get("PermissionsBoundary"):
-            iam.delete_role_permissions_boundary(RoleName=role_name)
-        iam.delete_role(RoleName=role_name)
+            retry_throttled(iam.delete_role_permissions_boundary, RoleName=role_name)
+        retry_throttled(iam.delete_role, RoleName=role_name)
 
     delete_cloudfront_and_bucket()
     print("  Deleted project API Gateways, Lambdas, DynamoDB tables, Cognito pools, log groups, IAM roles, CloudFront and UI bucket")

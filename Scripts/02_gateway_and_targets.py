@@ -1,188 +1,146 @@
-"""Create the protected MCP Gateway and direct API Gateway targets."""
+"""Ensure the AgentCore Gateway with platform OAuth inbound authorization.
+
+The provider APIs are external REST APIs from the Gateway's point of view. Their
+OpenAPI targets and per-API OAuth credentials are provisioned separately by
+11_external_provider_oauth.py and 12_protect_provider_apis.py (Hotels is attached
+only by the live-demo step, 13_add_hotels_gateway_target.py).
+"""
 
 from __future__ import annotations
 
-import time
-
-from botocore.exceptions import ClientError
-
-from common import TAGS, account_id, client, ensure_role, is_error, load_state, save_state, wait_for
+from common import TAGS, account_id, client, ensure_role, load_state, save_state, wait_for
 
 GATEWAY_NAME = "travel-gateway"
 ROLE_NAME = "agente-agente-viajes-gateway-role"
-FLIGHTS_API_ID = "5zoo2ck7cf"
-HOTELS_API_ID = "2ekvs712nj"
+POLICY_NAME = "InvokeTravelApis"
+PLATFORM_SCOPE = "travel-agent-platform/gateway.invoke"
+EXTERNAL_PROVIDER_NAMES = (
+    "external_travel_flights_oauth",
+    "external_travel_locations_oauth",
+    "external_travel_hotels_oauth",
+)
 
 
-def find_gateway() -> str | None:
-    for gateway in client("bedrock-agentcore-control").list_gateways().get("items", []):
-        if gateway["name"] == GATEWAY_NAME:
-            return gateway["gatewayId"]
-    return None
-
-
-def prepare_api_for_agentcore(api_id: str, paths: list[str], query_parameters: dict[str, list[str]]) -> None:
-    api_gateway = client("apigateway")
-    resources = api_gateway.get_resources(restApiId=api_id, limit=500).get("items", [])
-    resources_by_path = {resource["path"]: resource["id"] for resource in resources}
-    for path in paths:
-        resource_id = resources_by_path.get(path)
-        if not resource_id:
-            raise RuntimeError(f"Could not find {path} in API Gateway REST API {api_id}")
-        for status_code in ("200", "404"):
-            try:
-                api_gateway.put_method_response(restApiId=api_id, resourceId=resource_id, httpMethod="GET", statusCode=status_code)
-            except ClientError as error:
-                if not is_error(error, "ConflictException"):
-                    raise
-        method = api_gateway.get_method(
-            restApiId=api_id,
-            resourceId=resource_id,
-            httpMethod="GET",
-        )
-        declared_parameters = method.get("requestParameters", {})
-        for parameter in query_parameters.get(path, []):
-            key = f"method.request.querystring.{parameter}"
-            if key in declared_parameters:
-                continue
-            api_gateway.update_method(
-                restApiId=api_id,
-                resourceId=resource_id,
-                httpMethod="GET",
-                patchOperations=[
-                    {
-                        "op": "add",
-                        "path": f"/requestParameters/{key}",
-                        "value": "true",
-                    }
-                ],
-            )
-    api_gateway.create_deployment(restApiId=api_id, stageName="prod", description="Add documented responses required by AgentCore target import")
-
-
-def existing_target(gateway_id: str, name: str) -> dict | None:
-    for target in client("bedrock-agentcore-control").list_gateway_targets(gatewayIdentifier=gateway_id).get("items", []):
-        if target["name"] == name:
-            return target
-    return None
+def find_gateway(control) -> str | None:
+    token = None
+    while True:
+        args = {"maxResults": 20}
+        if token:
+            args["nextToken"] = token
+        page = control.list_gateways(**args)
+        for gateway in page.get("items", []):
+            if gateway.get("name") == GATEWAY_NAME:
+                return gateway["gatewayId"]
+        token = page.get("nextToken")
+        if not token:
+            return None
 
 
 def main() -> None:
-    control = client("bedrock-agentcore-control")
     state = load_state()
-    required = ["cognito_discovery_url", "cognito_client_id", "flights_scope", "hotels_scope", "credential_provider_arn"]
-    missing = [key for key in required if key not in state]
+    required = (
+        "cognito_discovery_url",
+        "platform_gateway_client_id",
+        "platform_gateway_scope",
+        "external_provider_oauth_provider_arns",
+    )
+    missing = [key for key in required if not state.get(key)]
     if missing:
-        raise RuntimeError(f"Run 01_cognito_identity.py first; missing {missing}")
+        raise RuntimeError(f"Run 01_cognito_identity.py, 11_external_provider_oauth.py and 14_platform_gateway_oauth.py first; missing {missing}")
+    providers = state["external_provider_oauth_provider_arns"]
+    missing_providers = [name for name in ("flights", "locations", "hotels") if not providers.get(name)]
+    if missing_providers:
+        raise RuntimeError(f"External OAuth providers are missing: {missing_providers}")
+
+    region = state.get("region", "us-east-1")
     account = account_id()
-    gateway_workload_identity = state.get("gateway_id", "travel-gateway-*")
-    oauth_provider_resources = [
-        state["credential_provider_arn"],
-        *([state["platform_gateway_oauth_provider_arn"]] if state.get("platform_gateway_oauth_provider_arn") else []),
-        *state.get("external_provider_oauth_provider_arns", {}).values(),
-        f"arn:aws:bedrock-agentcore:{state['region']}:{account}:token-vault/default",
-        f"arn:aws:bedrock-agentcore:{state['region']}:{account}:workload-identity-directory/default",
-        f"arn:aws:bedrock-agentcore:{state['region']}:{account}:workload-identity-directory/default/workload-identity/{gateway_workload_identity}",
+    provider_arns = [providers[name] for name in ("flights", "locations", "hotels")]
+    workload_directory_arn = f"arn:aws:bedrock-agentcore:{region}:{account}:workload-identity-directory/default"
+    secret_arns = [
+        f"arn:aws:secretsmanager:{region}:{account}:secret:bedrock-agentcore-identity!default/oauth2/{name}-*"
+        for name in EXTERNAL_PROVIDER_NAMES
     ]
     role_arn = ensure_role(
         ROLE_NAME,
-        {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "bedrock-agentcore.amazonaws.com"}, "Action": "sts:AssumeRole"}]},
-        "InvokeTravelApis",
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Principal": {"Service": "bedrock-agentcore.amazonaws.com"}, "Action": "sts:AssumeRole"}],
+        },
+        POLICY_NAME,
         {
             "Version": "2012-10-17",
             "Statement": [
                 {
-                    "Sid": "LegacyDirectApiGatewayAccessDuringMigration",
+                    "Sid": "GetWorkloadAccessToken",
                     "Effect": "Allow",
-                    "Action": "execute-api:Invoke",
+                    "Action": "bedrock-agentcore:GetWorkloadAccessToken",
                     "Resource": [
-                        f"arn:aws:execute-api:{state['region']}:{account}:{FLIGHTS_API_ID}/prod/*",
-                        f"arn:aws:execute-api:{state['region']}:{account}:{HOTELS_API_ID}/prod/*",
+                        workload_directory_arn,
+                        f"{workload_directory_arn}/workload-identity/travel-gateway-*",
                     ],
                 },
                 {
-                    "Sid": "RetrieveOAuthCredentialsForGatewayTargets",
+                    "Sid": "GetResourceOauth2Token",
                     "Effect": "Allow",
                     "Action": "bedrock-agentcore:GetResourceOauth2Token",
-                    "Resource": oauth_provider_resources,
+                    "Resource": provider_arns,
+                },
+                {
+                    "Sid": "GetExternalProviderOAuthSecrets",
+                    "Effect": "Allow",
+                    "Action": "secretsmanager:GetSecretValue",
+                    "Resource": secret_arns,
                 },
             ],
         },
     )
-    gateway_arn = state.get("gateway_arn")
-    gateway_id = state.get("gateway_id") or find_gateway()
+
+    control = client("bedrock-agentcore-control")
+    gateway_id = state.get("gateway_id") or find_gateway(control)
+    auth = {
+        "customJWTAuthorizer": {
+            "discoveryUrl": state["cognito_discovery_url"],
+            "allowedClients": [state["platform_gateway_client_id"]],
+            "allowedScopes": [state.get("platform_gateway_scope", PLATFORM_SCOPE)],
+        }
+    }
     if not gateway_id:
-        gateway = control.create_gateway(
+        response = control.create_gateway(
             name=GATEWAY_NAME,
             roleArn=role_arn,
             protocolType="MCP",
             authorizerType="CUSTOM_JWT",
-            authorizerConfiguration={"customJWTAuthorizer": {"discoveryUrl": state["cognito_discovery_url"], "allowedClients": [state["cognito_client_id"]], "allowedScopes": [state["flights_scope"], state["hotels_scope"]]}},
+            authorizerConfiguration=auth,
             description="MCP gateway for the agente-agente-viajes demo",
             tags=TAGS,
         )
-        gateway_id = gateway["gatewayId"]
-        gateway_arn = gateway["gatewayArn"]
-        wait_for(lambda identifier: control.get_gateway(gatewayIdentifier=identifier), gateway_id)
-    existing_gateway = control.get_gateway(gatewayIdentifier=gateway_id)
-    gateway_arn = gateway_arn or existing_gateway["gatewayArn"]
-    save_state(gateway_id=gateway_id, gateway_arn=gateway_arn, gateway_url=existing_gateway.get("gatewayUrl"), gateway_role_arn=role_arn)
-    prepare_api_for_agentcore(
-        FLIGHTS_API_ID,
-        ["/flights", "/flights/{id}"],
-        {"/flights": ["origin", "destination", "date"]},
-    )
-    prepare_api_for_agentcore(
-        HOTELS_API_ID,
-        ["/hotels", "/hotels/{id}"],
-        {"/hotels": ["destination", "checkIn", "checkOut", "guests"]},
-    )
-    target_specs = [
-        ("flights-target", FLIGHTS_API_ID, [{"name": "search_flights", "description": "Search flight options by origin, destination and date.", "path": "/flights", "method": "GET"}, {"name": "get_flight", "description": "Get one flight by its ID.", "path": "/flights/{id}", "method": "GET"}], [{"filterPath": "/flights", "methods": ["GET"]}, {"filterPath": "/flights/{id}", "methods": ["GET"]}]),
-        ("hotels-target", HOTELS_API_ID, [{"name": "search_hotels", "description": "Search hotels by destination, check-in, check-out and guests.", "path": "/hotels", "method": "GET"}, {"name": "get_hotel", "description": "Get one hotel by its ID.", "path": "/hotels/{id}", "method": "GET"}], [{"filterPath": "/hotels", "methods": ["GET"]}, {"filterPath": "/hotels/{id}", "methods": ["GET"]}]),
-    ]
-    target_ids = {}
-    for name, api_id, overrides, filters in target_specs:
-        current = existing_target(gateway_id, name)
-        if current and current["status"] == "FAILED":
-            control.delete_gateway_target(gatewayIdentifier=gateway_id, targetId=current["targetId"])
-            for _ in range(24):
-                time.sleep(5)
-                if not existing_target(gateway_id, name):
-                    current = None
-                    break
-            else:
-                raise TimeoutError(f"Timed out deleting failed target {name}")
-        if current:
-            target_ids[name] = current["targetId"]
-            continue
-        target = control.create_gateway_target(
-            gatewayIdentifier=gateway_id,
-            name=name,
-            description=f"{name} for travel planning",
-            targetConfiguration={"mcp": {"apiGateway": {"restApiId": api_id, "stage": "prod", "apiGatewayToolConfiguration": {"toolOverrides": overrides, "toolFilters": filters}}}},
-            credentialProviderConfigurations=[{"credentialProviderType": "GATEWAY_IAM_ROLE"}],
-        )
-        target_id = target["targetId"]
-        wait_for(lambda identifier: control.get_gateway_target(gatewayIdentifier=gateway_id, targetId=identifier), target_id)
-        target_ids[name] = target_id
-    if target_ids:
-        for target_id in target_ids.values():
-            control.synchronize_gateway_targets(
+        gateway_id = response["gatewayId"]
+        gateway = wait_for(lambda identifier: control.get_gateway(gatewayIdentifier=identifier), gateway_id)
+    else:
+        gateway = control.get_gateway(gatewayIdentifier=gateway_id)
+        if gateway.get("name") != GATEWAY_NAME:
+            raise RuntimeError(f"Refusing to update unexpected Gateway {gateway_id}: {gateway.get('name')}")
+        if gateway.get("roleArn") != role_arn or gateway.get("authorizerConfiguration") != auth:
+            control.update_gateway(
                 gatewayIdentifier=gateway_id,
-                targetIdList=[target_id],
+                name=GATEWAY_NAME,
+                roleArn=role_arn,
+                authorizerType="CUSTOM_JWT",
+                authorizerConfiguration=auth,
             )
-            wait_for(
-                lambda identifier: control.get_gateway_target(
-                    gatewayIdentifier=gateway_id,
-                    targetId=identifier,
-                ),
-                target_id,
-            )
-    gateway = control.get_gateway(gatewayIdentifier=gateway_id)
-    save_state(gateway_id=gateway_id, gateway_arn=gateway_arn or gateway["gatewayArn"], gateway_url=gateway.get("gatewayUrl"), gateway_role_arn=role_arn, gateway_targets=target_ids)
-    print(f"Gateway ARN: {gateway_arn or gateway['gatewayArn']}")
-    print(f"Gateway URL: {gateway.get('gatewayUrl', 'pending')}")
+            gateway = wait_for(lambda identifier: control.get_gateway(gatewayIdentifier=identifier), gateway_id)
+
+    save_state(
+        aws_profile="agente-agente-viajes",
+        region=region,
+        gateway_id=gateway_id,
+        gateway_arn=gateway["gatewayArn"],
+        gateway_url=gateway.get("gatewayUrl"),
+        gateway_role_arn=role_arn,
+    )
+    print(f"Gateway: {gateway_id}")
+    print(f"Inbound auth: Cognito UI pool; client {state['platform_gateway_client_id']}; scope {state.get('platform_gateway_scope', PLATFORM_SCOPE)}")
+    print("Targets are provisioned separately from OpenAPI schemas with per-API OAuth (12 for Flights/Locations; 13 for Hotels).")
 
 
 if __name__ == "__main__":

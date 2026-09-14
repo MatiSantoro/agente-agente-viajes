@@ -2,20 +2,15 @@
 
 from __future__ import annotations
 
-import json
-
 from botocore.exceptions import ClientError
 
-from common import REGION, TAGS, account_id, client, is_error, load_state, save_state
+from common import REGION, TAGS, client, is_error, load_state, save_state
 
 RESOURCE_SERVER_ID = "travel-agent-platform"
 RESOURCE_SERVER_NAME = "Travel Agent Platform"
 SCOPE_NAME = "gateway.invoke"
 CLIENT_NAME = "travel-agent-platform-gateway-m2m"
 PROVIDER_NAME = "travel_agent_platform_gateway_oauth"
-GATEWAY_ROLE_NAME = "agente-agente-viajes-gateway-role"
-GATEWAY_POLICY_NAME = "InvokeTravelApis"
-EXTERNAL_PROVIDER_SECRET_NAMES = ("external_travel_flights_oauth", "external_travel_locations_oauth")
 
 
 def find_provider() -> str | None:
@@ -39,31 +34,6 @@ def find_client(cognito, pool_id: str) -> str | None:
         if item["ClientName"] == CLIENT_NAME:
             return item["ClientId"]
     return None
-
-
-def allow_gateway_to_retrieve_provider(provider_arn: str) -> None:
-    iam = client("iam")
-    policy = iam.get_role_policy(RoleName=GATEWAY_ROLE_NAME, PolicyName=GATEWAY_POLICY_NAME)["PolicyDocument"]
-    statement = next(item for item in policy["Statement"] if item.get("Sid") == "RetrieveOAuthCredentialsForGatewayTargets")
-    # OAuth targets first obtain a workload access token and then exchange it
-    # through Token Vault.  Without this action the Gateway returns the generic
-    # "An internal error occurred" before it ever calls the downstream API.
-    actions = statement.get("Action", [])
-    if isinstance(actions, str):
-        actions = [actions]
-    if "bedrock-agentcore:GetWorkloadAccessToken" not in actions:
-        actions.append("bedrock-agentcore:GetWorkloadAccessToken")
-    statement["Action"] = actions
-    resources = statement["Resource"]
-    if provider_arn not in resources:
-        resources.append(provider_arn)
-    secret_resources = [f"arn:aws:secretsmanager:{REGION}:{account_id()}:secret:bedrock-agentcore-identity!default/oauth2/{name}-*" for name in EXTERNAL_PROVIDER_SECRET_NAMES]
-    secret_statement = next((item for item in policy["Statement"] if item.get("Sid") == "RetrieveExternalOAuthProviderSecrets"), None)
-    if not secret_statement:
-        policy["Statement"].append({"Sid": "RetrieveExternalOAuthProviderSecrets", "Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": secret_resources})
-    else:
-        secret_statement["Resource"] = secret_resources
-    iam.put_role_policy(RoleName=GATEWAY_ROLE_NAME, PolicyName=GATEWAY_POLICY_NAME, PolicyDocument=json.dumps(policy))
 
 
 def main() -> None:
@@ -102,10 +72,10 @@ def main() -> None:
             oauth2ProviderConfigInput={"customOauth2ProviderConfig": {"oauthDiscovery": {"discoveryUrl": state["cognito_discovery_url"]}, "clientId": client_id, "clientSecret": client_secret, "clientSecretSource": "MANAGED"}},
             tags=TAGS,
         )["credentialProviderArn"]
-    allow_gateway_to_retrieve_provider(provider_arn)
     save_state(platform_gateway_resource_server_id=RESOURCE_SERVER_ID, platform_gateway_scope=scope, platform_gateway_client_id=client_id, platform_gateway_oauth_provider_arn=provider_arn)
     print(f"Platform gateway scope: {scope}")
     print(f"Platform gateway client: {client_id}")
+    print("This provider is for Harness outbound auth to the Gateway; its permissions belong on the Harness role, not the Gateway role.")
 
 
 if __name__ == "__main__":

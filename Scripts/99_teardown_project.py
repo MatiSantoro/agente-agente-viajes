@@ -299,6 +299,9 @@ def delete_agentcore_resources() -> None:
         name = endpoint.get("name") or endpoint.get("endpointName")
         if not name:
             raise RuntimeError(f"Cannot identify a Harness endpoint for deletion: {endpoint}")
+        if name.upper() == "DEFAULT":
+            # AWS removes the mandatory DEFAULT endpoint together with its Harness.
+            continue
         maybe(control.delete_harness_endpoint, harnessId=HARNESS_ID, endpointName=name)
         wait_until(
             f"Harness endpoint {name} deletion",

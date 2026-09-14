@@ -70,6 +70,7 @@ def missing(error: ClientError) -> bool:
     return error.response.get("Error", {}).get("Code") in {
         "ResourceNotFoundException",
         "ResourceNotFound",
+        "NotFoundException",
         "NoSuchEntity",
         "NoSuchBucket",
         "NoSuchDistribution",

@@ -237,7 +237,20 @@ def _ensure_lambda(kind: str, role_arn: str) -> str:
     except ClientError as error:
         if not is_error(error, "ResourceNotFoundException"):
             raise
-        lambda_client.create_function(FunctionName=function_name, Runtime="python3.13", Role=role_arn, Handler=handler, Code={"ZipFile": code}, Timeout=29, Environment=environment, Tags=TAGS)
+        # IAM role creation is eventually consistent. Lambda can briefly reject
+        # a perfectly valid trust policy with "role cannot be assumed" while
+        # the role propagates across regions. Retry only that transient case.
+        for attempt in range(12):
+            try:
+                lambda_client.create_function(FunctionName=function_name, Runtime="python3.13", Role=role_arn, Handler=handler, Code={"ZipFile": code}, Timeout=29, Environment=environment, Tags=TAGS)
+                break
+            except ClientError as create_error:
+                message = create_error.response.get("Error", {}).get("Message", "")
+                if not is_error(create_error, "InvalidParameterValueException") or "cannot be assumed" not in message or attempt == 11:
+                    raise
+                delay = min(10 * (attempt + 1), 30)
+                print(f"  Waiting for IAM role propagation before creating {function_name} ({delay}s)")
+                time.sleep(delay)
     config = _wait_lambda(function_name)
     return config["FunctionArn"]
 

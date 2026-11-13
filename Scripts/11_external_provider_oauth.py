@@ -88,7 +88,19 @@ def main() -> None:
     cognito = client("cognito-idp")
     control = client("bedrock-agentcore-control")
     state = load_state()
-    pool_id = state.get("external_provider_user_pool_id") or find_pool()
+    # State can outlive a previous teardown. Validate the recorded ID before
+    # using it, then discover the pool by its stable name.
+    pool_id = state.get("external_provider_user_pool_id")
+    if pool_id:
+        try:
+            existing = cognito.describe_user_pool(UserPoolId=pool_id)["UserPool"]
+            if existing.get("Name") != POOL_NAME:
+                pool_id = None
+        except ClientError as error:
+            if not is_error(error, "ResourceNotFoundException"):
+                raise
+            pool_id = None
+    pool_id = pool_id or find_pool()
     if not pool_id:
         pool_id = cognito.create_user_pool(
             PoolName=POOL_NAME,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from common import REGION, TAGS, account_id, client, ensure_role, load_state, save_state, wait_for
+from botocore.exceptions import ClientError
+
+from common import REGION, TAGS, account_id, client, ensure_role, is_error, load_state, save_state, wait_for
 
 HARNESS_NAME = "travel_agent"
 ROLE_NAME = "agente-agente-viajes-harness-role"
@@ -49,6 +51,9 @@ def main() -> None:
             "allowedScopes": allowed_scopes,
         }
     }
+    # CreateHarness takes the authorizer object directly; UpdateHarness wraps
+    # the same object in optionalValue because that operation uses an optional
+    # update field.
     authorizer_request = {"optionalValue": desired_authorizer}
     account = account_id()
     role_arn = ensure_role(
@@ -78,7 +83,19 @@ def main() -> None:
             ],
         },
     )
-    harness_id = state.get("harness_id") or find_harness()
+    # State may contain an ID from a previous teardown. Validate it before
+    # using it, then discover the Harness by its stable name.
+    harness_id = state.get("harness_id")
+    if harness_id:
+        try:
+            existing = control.get_harness(harnessId=harness_id)["harness"]
+            if existing.get("harnessName") != HARNESS_NAME:
+                harness_id = None
+        except ClientError as error:
+            if not is_error(error, "ResourceNotFoundException"):
+                raise
+            harness_id = None
+    harness_id = harness_id or find_harness()
     if not harness_id:
         response = control.create_harness(
             harnessName=HARNESS_NAME,
@@ -86,7 +103,7 @@ def main() -> None:
             model={"bedrockModelConfig": {"modelId": MODEL_ID, "apiFormat": "converse_stream", "maxTokens": MODEL_MAX_TOKENS, "temperature": MODEL_TEMPERATURE}},
             systemPrompt=[{"text": SYSTEM_PROMPT}],
             tools=[{"type": "agentcore_gateway", "name": "travel_gateway", "config": {"agentCoreGateway": {"gatewayArn": state["gateway_arn"], "outboundAuth": {"oauth": {"providerArn": state["platform_gateway_oauth_provider_arn"], "grantType": "CLIENT_CREDENTIALS", "scopes": [state["platform_gateway_scope"]]}}}}}],
-            authorizerConfiguration=authorizer_request,
+            authorizerConfiguration=desired_authorizer,
             memory={"disabled": {}},
             maxIterations=MAX_ITERATIONS,
             maxTokens=MODEL_MAX_TOKENS,

@@ -8,7 +8,9 @@ manually in the AWS console during the live demo.
 
 from __future__ import annotations
 
-from common import TAGS, account_id, client, ensure_role, load_state, save_state, wait_for
+from botocore.exceptions import ClientError
+
+from common import TAGS, account_id, client, ensure_role, is_error, load_state, save_state, wait_for
 
 GATEWAY_NAME = "travel-gateway"
 ROLE_NAME = "agente-agente-viajes-gateway-role"
@@ -95,7 +97,19 @@ def main() -> None:
     )
 
     control = client("bedrock-agentcore-control")
-    gateway_id = state.get("gateway_id") or find_gateway(control)
+    # State may contain an ID from a previous teardown. Validate it before
+    # using it, then discover the Gateway by its stable name.
+    gateway_id = state.get("gateway_id")
+    if gateway_id:
+        try:
+            existing = control.get_gateway(gatewayIdentifier=gateway_id)
+            if existing.get("name") != GATEWAY_NAME:
+                gateway_id = None
+        except ClientError as error:
+            if not is_error(error, "ResourceNotFoundException"):
+                raise
+            gateway_id = None
+    gateway_id = gateway_id or find_gateway(control)
     auth = {
         "customJWTAuthorizer": {
             "discoveryUrl": state["cognito_discovery_url"],

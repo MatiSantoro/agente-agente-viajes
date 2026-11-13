@@ -40,7 +40,19 @@ def ensure_domain(cognito, pool_id: str, domain: str) -> None:
 
 def main() -> None:
     cognito = client("cognito-idp")
-    pool_id = load_state().get("cognito_user_pool_id") or find_pool(cognito)
+    # State may contain an ID from an older teardown. Validate it before using
+    # it, then fall back to discovery by the stable pool name.
+    pool_id = load_state().get("cognito_user_pool_id")
+    if pool_id:
+        try:
+            existing = cognito.describe_user_pool(UserPoolId=pool_id)["UserPool"]
+            if existing.get("Name") != POOL_NAME:
+                pool_id = None
+        except ClientError as error:
+            if not is_error(error, "ResourceNotFoundException"):
+                raise
+            pool_id = None
+    pool_id = pool_id or find_pool(cognito)
     if not pool_id:
         pool_id = cognito.create_user_pool(
             PoolName=POOL_NAME,

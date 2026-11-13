@@ -14,14 +14,14 @@ AgentCore Harness (modelo, instrucciones y Gateway ARN)
 AgentCore Gateway (descubre y expone APIs como herramientas MCP)
         |
         v
-Flights API / Hotels API
+Flights API / Hotels API / Locations API
 ```
 
 AgentCore Identity aporta autorización OAuth delegada para que cada llamada se realice en nombre del usuario.
 
 ## Interfaz web de prueba
 
-El proyecto incluirá una interfaz web pequeña para que las personas puedan probar el agente sin usar la terminal. La UI enviará los mensajes a un backend propio, y éste invocará AgentCore Harness; las credenciales y la configuración de AWS permanecerán siempre del lado servidor.
+El proyecto incluye una interfaz web pequeña para que las personas puedan probar el agente sin usar la terminal. La UI envía los mensajes a un backend propio, y éste invoca AgentCore Harness; las credenciales y la configuración de AWS permanecen siempre del lado servidor.
 
 La interfaz deberá permitir:
 
@@ -45,6 +45,7 @@ El Harness sólo necesita conocer el ARN completo del Gateway. Por eso, cuando s
 | **AgentCore Identity** | Gestiona OAuth y autorización delegada, evitando credenciales estáticas en el agente. |
 | **Flights** | API de búsqueda de vuelos que se usa como target inicial del Gateway. |
 | **Hotels** | API de búsqueda de hoteles que se agrega al Gateway durante la demo. |
+| **Locations** | API de resolución de ciudades y aeropuertos que permanece conectada desde el inicio. |
 
 ## APIs de la demo
 
@@ -64,28 +65,52 @@ API REST para buscar alojamientos:
 - `GET /hotels/{id}` — obtener el detalle de una opción de alojamiento.
 - `GET /hotels/availability` — descubrir estadías por capacidad de habitación y cantidad de huéspedes.
 
-Ambas APIs se implementarán con AWS Lambda (Python) y Amazon API Gateway REST. Se validan con `curl` antes de conectarlas al Gateway. El agente usa los resultados de ambas para recomendar una combinación coherente de vuelo y hotel.
+Las APIs se implementan con AWS Lambda (Python) y Amazon API Gateway REST. Se validan con `curl` antes de conectarlas al Gateway. El agente usa Locations para resolver códigos y combina los resultados de Flights y Hotels para recomendar una alternativa coherente.
+
+### Locations
+
+API REST para resolver nombres de ciudades o aeropuertos antes de consultar disponibilidad:
+
+- `GET /locations` — recibe `query` y devuelve códigos de ubicación y aeropuertos utilizables, por ejemplo `Buenos Aires` → `EZE` y `AEP`.
+
+Locations se conecta desde el inicio junto con Flights. Hotels queda desplegado como backend con datos para diciembre y fechas cercanas, pero su integración OAuth y target se configuran en vivo.
 
 ## Flujo de la demo
 
 1. Probar Flights directamente con `curl`.
 2. Invocar el agente del Harness para buscar un vuelo a través del Gateway.
-3. Agregar Hotels como un nuevo target al Gateway desde la consola de AWS.
+3. Crear en vivo los componentes OAuth de Hotels, proteger sus métodos y agregar Hotels como REST API target desde la consola de AWS.
 4. Iniciar una nueva invocación del agente y pedir una combinación de vuelo y hotel, sin cambiar el Harness.
 5. Mostrar los logs o trazas de Identity para comprobar que la API recibió la identidad del usuario, no una credencial fija ni la identidad del agente.
 
+El OpenAPI inline exacto para Hotels se obtiene después del despliegue con:
+
+```bash
+.venv/bin/python Scripts/17_print_hotels_openapi.py
+```
+
 > Antes de la charla hay que verificar si una sesión ya iniciada descubre el target nuevo, o si hace falta iniciar una sesión nueva. El resultado debe documentarse aquí junto con el comando usado.
 
-## Estructura prevista
+## Despliegue reproducible
+
+El repositorio tiene un único punto de entrada para desplegar la demo completa. Los módulos siguen separados para que cada parte sea revisable, pero no hace falta ejecutar una lista manual de comandos:
+
+```bash
+.venv/bin/python -m pip install -r Scripts/requirements.txt
+.venv/bin/python Scripts/00_deploy.py
+```
+
+Ese comando crea las tres APIs proveedoras, sus tablas DynamoDB con inventario de demostración, Lambdas, roles IAM, los dos User Pools, AgentCore Gateway, Identity, Harness y la UI. El despliegue inicial deja Hotels como backend existente, pero sin su app client OAuth, Identity provider, authorizer, permisos del Gateway ni target. Esos pasos se hacen manualmente en la consola durante la demo. Los IDs generados por AWS no están hardcodeados: se descubren por nombre y se guardan solamente en `Scripts/.state.json`, que no se versiona.
+
+## Estructura
 
 ```text
-apis/
-  flights/       # Lambda y definición/instrucciones de API Gateway
-  hotels/        # Lambda y definición/instrucciones de API Gateway
-gateway/         # Configuración y pasos para crear el Gateway y su target inicial
-identity/        # Configuración del proveedor OAuth para autorización delegada
-harness/         # Configuración del agente y comandos agentcore CLI
-web/             # UI de prueba y backend que invoca AgentCore Harness
+Scripts/
+  00_deploy.py   # único entrypoint de provisioning
+  07_provider_apis.py # tablas, datos, Lambdas y APIs REST
+  01–16_*.py     # módulos idempotentes de Cognito, Gateway, Identity, Harness y UI
+UI/              # UI de prueba publicada en S3/CloudFront
+lambda/          # Handlers de Flights, Hotels, Locations y chat
 ```
 
 ## Principios de seguridad

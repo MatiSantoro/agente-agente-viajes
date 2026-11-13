@@ -1,8 +1,8 @@
 """Provision the external OAuth provider simulated by Cognito for REST API targets.
 
-Flights, Locations and Hotels belong to one external provider security domain. Hotels
-is prepared here but its AgentCore Gateway target is intentionally created separately
-in the live-demo step.
+Flights, Locations and Hotels belong to one external provider security domain. The
+User Pool and resource server are created before the demo, while Hotels OAuth
+credentials are deliberately created during the live demo.
 """
 
 from __future__ import annotations
@@ -35,6 +35,9 @@ APIS = {
         "provider_name": "external_travel_hotels_oauth",
     },
 }
+# The live demo starts with Hotels absent from the provider OAuth surface. The
+# external User Pool and its resource server still exist before the talk.
+INITIAL_APIS = ("flights", "locations")
 
 
 def find_pool() -> str | None:
@@ -94,8 +97,8 @@ def main() -> None:
         )["UserPool"]["Id"]
 
     desired_scopes = [
-        {"ScopeName": api["scope"], "ScopeDescription": api["description"]}
-        for api in APIS.values()
+        {"ScopeName": APIS[name]["scope"], "ScopeDescription": APIS[name]["description"]}
+        for name in INITIAL_APIS
     ]
     servers = cognito.list_resource_servers(UserPoolId=pool_id, MaxResults=50).get("ResourceServers", [])
     existing = next((server for server in servers if server["Identifier"] == RESOURCE_SERVER_ID), None)
@@ -119,7 +122,8 @@ def main() -> None:
     discovery_url = f"https://cognito-idp.{REGION}.amazonaws.com/{pool_id}/.well-known/openid-configuration"
     clients: dict[str, str] = {}
     providers: dict[str, str] = {}
-    for api_name, api in APIS.items():
+    for api_name in INITIAL_APIS:
+        api = APIS[api_name]
         full_scope = f"{RESOURCE_SERVER_ID}/{api['scope']}"
         client_id = find_client(pool_id, api["client_name"])
         if not client_id:
@@ -161,20 +165,32 @@ def main() -> None:
         clients[api_name] = client_id
         providers[api_name] = provider_arn
 
+    # Remove stale Hotels entries from an older deployment so the pre-demo state
+    # cannot accidentally make Hotels look connected.
+    existing_clients = dict(state.get("external_provider_clients", {}))
+    existing_providers = dict(state.get("external_provider_oauth_provider_arns", {}))
+    existing_scopes = dict(state.get("external_provider_scopes", {}))
+    for mapping in (existing_clients, existing_providers, existing_scopes):
+        mapping.pop("hotels", None)
+    existing_clients.update(clients)
+    existing_providers.update(providers)
+    existing_scopes.update({name: f"{RESOURCE_SERVER_ID}/{APIS[name]['scope']}" for name in INITIAL_APIS})
+
     save_state(
         aws_profile=PROFILE,
         external_provider_user_pool_id=pool_id,
         external_provider_domain=domain,
         external_provider_discovery_url=discovery_url,
         external_provider_resource_server_id=RESOURCE_SERVER_ID,
-        external_provider_scopes={name: f"{RESOURCE_SERVER_ID}/{api['scope']}" for name, api in APIS.items()},
-        external_provider_clients=clients,
-        external_provider_oauth_provider_arns=providers,
+        external_provider_scopes=existing_scopes,
+        external_provider_clients=existing_clients,
+        external_provider_oauth_provider_arns=existing_providers,
     )
     print(f"External provider user pool: {pool_id}")
     print(f"Resource server: {RESOURCE_SERVER_ID}")
-    for api_name in APIS:
+    for api_name in INITIAL_APIS:
         print(f"{api_name}: client and OAuth provider ready")
+    print("Hotels OAuth client/provider intentionally left for the live console demo.")
 
 
 if __name__ == "__main__":

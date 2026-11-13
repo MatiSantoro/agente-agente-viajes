@@ -15,10 +15,10 @@ from botocore.exceptions import ClientError
 from common import REGION, account_id, client, is_error, load_state, save_state, wait_for
 
 EXTERNAL_POOL_NAME = "agente-agente-viajes-external-travel-provider"
-GATEWAY_ID = "travel-gateway-mg1vmnirin"
+INITIAL_APIS = ("flights", "locations")
 API_SPECS = {
     "flights": {
-        "api_id": "5zoo2ck7cf",
+        "api_name": "agente-agente-viajes-flights",
         "authorizer_name": "external-travel-flights-authorizer",
         "scope_suffix": "flights.read",
         "target_name": "flights-rest-api-target",
@@ -44,7 +44,7 @@ API_SPECS = {
         },
     },
     "locations": {
-        "api_id": "cgz8nh56v0",
+        "api_name": "agente-agente-viajes-locations",
         "authorizer_name": "external-travel-locations-authorizer",
         "scope_suffix": "locations.read",
         "target_name": "locations-rest-api-target",
@@ -60,7 +60,7 @@ API_SPECS = {
         },
     },
     "hotels": {
-        "api_id": "2ekvs712nj",
+        "api_name": "agente-agente-viajes-hotels",
         "authorizer_name": "external-travel-hotels-authorizer",
         "scope_suffix": "hotels.read",
         "target_name": "hotels-rest-api-target",
@@ -86,6 +86,24 @@ API_SPECS = {
         },
     },
 }
+
+
+def find_provider_api_ids() -> dict[str, str]:
+    """Resolve generated REST API IDs by the stable project API names."""
+    state = load_state()
+    discovered = dict(state.get("provider_api_ids", {}))
+    api = client("apigateway")
+    by_name = {item["name"]: item["id"] for item in api.get_rest_apis(limit=500).get("items", [])}
+    for name, spec in API_SPECS.items():
+        # Prefer the live lookup so a stale ignored state file cannot point at
+        # an API Gateway ID that was deleted and later recreated.
+        api_id = by_name.get(spec["api_name"]) or discovered.get(name)
+        if not api_id:
+            raise RuntimeError(f"Provider REST API {spec['api_name']!r} is missing; run 07_provider_apis.py first")
+        spec["api_id"] = api_id
+        discovered[name] = api_id
+    save_state(provider_api_ids=discovered)
+    return discovered
 
 
 def find_pool_id() -> str:
@@ -231,6 +249,7 @@ def ensure_openapi_target(control, gateway_id: str, spec: dict, provider_arn: st
 
 
 def main() -> None:
+    find_provider_api_ids()
     state = load_state()
     provider_arns = state.get("external_provider_oauth_provider_arns", {})
     missing = [name for name in ("flights", "locations") if name not in provider_arns]
@@ -240,12 +259,17 @@ def main() -> None:
     pool_arn = f"arn:aws:cognito-idp:{REGION}:{account_id()}:userpool/{pool_id}"
     resource_server = state.get("external_provider_resource_server_id", "travel-provider-api")
     token_url = f"https://{state['external_provider_domain']}.auth.{REGION}.amazoncognito.com/oauth2/token"
-    gateway_id = state.get("gateway_id", GATEWAY_ID)
+    gateway_id = state.get("gateway_id")
+    if not gateway_id:
+        raise RuntimeError("Gateway ID is missing; run 02_gateway_and_targets.py first")
     control = client("bedrock-agentcore-control")
 
     # Retire direct targets first. OPEN_API targets below are the OAuth-capable replacements.
     for spec in API_SPECS.values():
         delete_target_if_present(control, gateway_id, spec["legacy_target_name"])
+    # Ensure an older full deployment cannot accidentally make Hotels appear in
+    # the initial demo state.
+    delete_target_if_present(control, gateway_id, API_SPECS["hotels"]["target_name"])
 
     target_ids: dict[str, str] = {}
     for name in ("flights", "locations"):
@@ -253,15 +277,20 @@ def main() -> None:
         scope = f"{resource_server}/{spec['scope_suffix']}"
         target_ids[name] = ensure_openapi_target(control, gateway_id, spec, provider_arns[name], scope, token_url)
 
-    # Hotels is fully protected, but deliberately has no Gateway target until the live demo.
-    for spec in API_SPECS.values():
+    # Hotels remains an existing backend, but its provider OAuth client,
+    # authorizer and Gateway target are intentionally created during the live demo.
+    for name in INITIAL_APIS:
+        spec = API_SPECS[name]
         scope = f"{resource_server}/{spec['scope_suffix']}"
         authorizer_id = ensure_authorizer(spec["api_id"], spec["authorizer_name"], pool_arn)
         protect_methods(spec["api_id"], authorizer_id, scope, spec["paths"])
 
-    save_state(external_provider_authorizers={name: spec["authorizer_name"] for name, spec in API_SPECS.items()}, external_provider_openapi_target_ids=target_ids)
-    print("Flights, Locations and Hotels API methods now require their OAuth scope.")
-    print("Flights and Locations are connected as OPEN_API targets. Hotels has no target yet.")
+    state_targets = dict(state.get("external_provider_openapi_target_ids", {}))
+    state_targets.pop("hotels", None)
+    state_targets.update(target_ids)
+    save_state(external_provider_authorizers={name: API_SPECS[name]["authorizer_name"] for name in INITIAL_APIS}, external_provider_openapi_target_ids=state_targets)
+    print("Flights and Locations API methods now require their OAuth scopes.")
+    print("Hotels backend is ready, but its OAuth client, authorizer and Gateway target are intentionally absent.")
 
 
 if __name__ == "__main__":

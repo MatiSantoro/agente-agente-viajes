@@ -2,8 +2,8 @@
 
 The provider APIs are external REST APIs from the Gateway's point of view. Their
 OpenAPI targets and per-API OAuth credentials are provisioned separately by
-11_external_provider_oauth.py and 12_protect_provider_apis.py (Hotels is attached
-only by the live-demo step, 13_add_hotels_gateway_target.py).
+11_external_provider_oauth.py and 12_protect_provider_apis.py. Hotels is configured
+manually in the AWS console during the live demo.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ PLATFORM_SCOPE = "travel-agent-platform/gateway.invoke"
 EXTERNAL_PROVIDER_NAMES = (
     "external_travel_flights_oauth",
     "external_travel_locations_oauth",
-    "external_travel_hotels_oauth",
 )
 
 
@@ -48,16 +47,16 @@ def main() -> None:
     if missing:
         raise RuntimeError(f"Run 01_cognito_identity.py, 11_external_provider_oauth.py and 14_platform_gateway_oauth.py first; missing {missing}")
     providers = state["external_provider_oauth_provider_arns"]
-    missing_providers = [name for name in ("flights", "locations", "hotels") if not providers.get(name)]
+    missing_providers = [name for name in ("flights", "locations") if not providers.get(name)]
     if missing_providers:
         raise RuntimeError(f"External OAuth providers are missing: {missing_providers}")
 
     region = state.get("region", "us-east-1")
     account = account_id()
-    provider_arns = [providers[name] for name in ("flights", "locations", "hotels")]
+    provider_arns = [providers[name] for name in ("flights", "locations")]
     workload_directory_arn = f"arn:aws:bedrock-agentcore:{region}:{account}:workload-identity-directory/default"
     secret_arns = [
-        f"arn:aws:secretsmanager:{region}:{account}:secret:bedrock-agentcore-identity!default/oauth2/{name}-*"
+            f"arn:aws:secretsmanager:{region}:{account}:secret:bedrock-agentcore-identity-default/oauth2/{name}-*"
         for name in EXTERNAL_PROVIDER_NAMES
     ]
     role_arn = ensure_role(
@@ -140,7 +139,7 @@ def main() -> None:
     )
     print(f"Gateway: {gateway_id}")
     print(f"Inbound auth: Cognito UI pool; client {state['platform_gateway_client_id']}; scope {state.get('platform_gateway_scope', PLATFORM_SCOPE)}")
-    print("Targets are provisioned separately from OpenAPI schemas with per-API OAuth (12 for Flights/Locations; 13 for Hotels).")
+    print("Flights and Locations targets are provisioned separately from OpenAPI schemas; Hotels is added manually during the demo.")
 
 
 if __name__ == "__main__":

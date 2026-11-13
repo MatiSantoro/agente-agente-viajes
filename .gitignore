@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 Scripts/.state.json
+.DS_Store
+.playwright-mcp/

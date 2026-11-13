@@ -1,4 +1,4 @@
-"""Live-demo step: connect the already-protected Hotels REST API to AgentCore Gateway."""
+"""Optional automation helper; the prescribed demo performs Hotels setup in AWS Console."""
 
 from __future__ import annotations
 

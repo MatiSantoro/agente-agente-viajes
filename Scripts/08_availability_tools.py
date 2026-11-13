@@ -13,7 +13,7 @@ from common import REGION, account_id, client, is_error, load_state, wait_for
 ROOT = Path(__file__).resolve().parent.parent
 ENDPOINTS = (
     {
-        "api_id": "5zoo2ck7cf",
+        "api_kind": "flights",
         "parent_path": "/flights",
         "path_part": "availability",
         "function_name": "agente-agente-viajes-flights",
@@ -23,7 +23,7 @@ ENDPOINTS = (
         "tool": {"name": "find_available_flight_dates", "description": "Discover only departure dates with connected flight inventory for an origin, destination, and passenger count. Each option includes the lowest price, whether a nonstop option exists, and the maximum seats available.", "path": "/flights/availability", "method": "GET"},
     },
     {
-        "api_id": "2ekvs712nj",
+        "api_kind": "hotels",
         "parent_path": "/hotels",
         "path_part": "availability",
         "function_name": "agente-agente-viajes-hotels",
@@ -156,10 +156,17 @@ def update_gateway_targets() -> None:
 
 
 def main() -> None:
+    state = load_state()
+    api_ids = state.get("provider_api_ids", {})
+    missing = [endpoint["api_kind"] for endpoint in ENDPOINTS if not api_ids.get(endpoint["api_kind"])]
+    if missing:
+        raise RuntimeError(f"Provider API IDs are missing for {missing}; run 07_provider_apis.py first")
+    for endpoint in ENDPOINTS:
+        endpoint["api_id"] = api_ids[endpoint["api_kind"]]
     for endpoint in ENDPOINTS:
         update_lambda(endpoint["function_name"], endpoint["source"])
         ensure_endpoint(endpoint)
-    ensure_optional_query_parameters("5zoo2ck7cf", "/flights", ("passengers",))
+    ensure_optional_query_parameters(api_ids["flights"], "/flights", ("passengers",))
     update_gateway_targets()
     print("Availability tools are published and synchronized.")
 

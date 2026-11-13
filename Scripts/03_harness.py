@@ -73,7 +73,7 @@ def main() -> None:
                 {
                     "Effect": "Allow",
                     "Action": "secretsmanager:GetSecretValue",
-                    "Resource": f"arn:aws:secretsmanager:{REGION}:{account}:secret:bedrock-agentcore-identity!default/oauth2/travel_agent_platform_gateway_oauth-*",
+                    "Resource": f"arn:aws:secretsmanager:{REGION}:{account}:secret:bedrock-agentcore-identity-default/oauth2/travel_agent_platform_gateway_oauth-*",
                 },
             ],
         },

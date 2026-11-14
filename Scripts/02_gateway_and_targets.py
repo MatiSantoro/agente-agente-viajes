@@ -84,7 +84,11 @@ def main() -> None:
                     "Sid": "GetResourceOauth2Token",
                     "Effect": "Allow",
                     "Action": "bedrock-agentcore:GetResourceOauth2Token",
-                    "Resource": provider_arns,
+                    "Resource": provider_arns + [
+                        f"arn:aws:bedrock-agentcore:{region}:{account}:token-vault/default",
+                        workload_directory_arn,
+                        f"{workload_directory_arn}/workload-identity/travel-gateway-*",
+                    ],
                 },
                 {
                     "Sid": "GetExternalProviderOAuthSecrets",

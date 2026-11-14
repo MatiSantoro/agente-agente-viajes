@@ -43,6 +43,8 @@
         throw new Error(data.message || 'Check your username and password, then try again.');
       }
       window.travelUi.store.setItem('access-token', data.AuthenticationResult.AccessToken);
+      if (data.AuthenticationResult.RefreshToken) window.travelUi.store.setItem('refresh-token', data.AuthenticationResult.RefreshToken);
+      window.travelUi.store.setItem('access-token-expires-at', String(Date.now() + Math.max(0, Number(data.AuthenticationResult.ExpiresIn || 3600) - 60) * 1000));
       password.value = '';
       window.travelUi.openApp();
     } catch (error) {

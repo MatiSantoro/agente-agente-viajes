@@ -58,7 +58,7 @@ def main() -> None:
     provider_arns = [providers[name] for name in ("flights", "locations")]
     workload_directory_arn = f"arn:aws:bedrock-agentcore:{region}:{account}:workload-identity-directory/default"
     secret_arns = [
-            f"arn:aws:secretsmanager:{region}:{account}:secret:bedrock-agentcore-identity-default/oauth2/{name}-*"
+            f"arn:aws:secretsmanager:{region}:{account}:secret:bedrock-agentcore-identity!default/oauth2/{name}-*"
         for name in EXTERNAL_PROVIDER_NAMES
     ]
     role_arn = ensure_role(

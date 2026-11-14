@@ -33,7 +33,7 @@ For the demo, Flights and Locations remain connected. Hotels is created as a liv
 3. Remove any automatically-created `Default` resource server.
 4. Edit `External Travel Provider API` and add `hotels.read`; save.
 5. In the Hotels app client Login pages, edit allowed scopes and add only `travel-provider-api/hotels.read`.
-6. Store the client secret in Secrets Manager as an `Other type of secret` with JSON key `client_secret`; use the name `bedrock-agentcore-identity-default/oauth2/external_travel_hotels_oauth` to match the existing convention.
+6. Store the client secret in Secrets Manager as an `Other type of secret` with JSON key `client_secret`; use the name `bedrock-agentcore-identity!default/oauth2/external_travel_hotels_oauth` to match the existing convention.
 7. In AgentCore Identity, add an Outbound Auth OAuth client using Custom provider, Client secret basic, the Cognito OIDC discovery URL, the Hotels client ID, and the Secrets Manager secret/key `client_secret`.
 8. Add the new Identity provider ARN and Secrets Manager ARN to `agente-agente-viajes-gateway-role`.
 9. In the travel Gateway, create a new MCP target with Passthrough disabled, Target type `REST API`, OpenAPI inline schema, and Hotels OAuth outbound configuration. Set the scope to `travel-provider-api/hotels.read`.

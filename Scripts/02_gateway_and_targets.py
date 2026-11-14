@@ -20,6 +20,7 @@ EXTERNAL_PROVIDER_NAMES = (
     "external_travel_flights_oauth",
     "external_travel_locations_oauth",
 )
+OPENAPI_SCHEMA_BUCKET = "agente-agente-viajes-openapi-schema"
 
 
 def find_gateway(control) -> str | None:
@@ -57,6 +58,7 @@ def main() -> None:
     account = account_id()
     provider_arns = [providers[name] for name in ("flights", "locations")]
     workload_directory_arn = f"arn:aws:bedrock-agentcore:{region}:{account}:workload-identity-directory/default"
+    schema_bucket_arn = f"arn:aws:s3:::{OPENAPI_SCHEMA_BUCKET}"
     secret_arns = [
             f"arn:aws:secretsmanager:{region}:{account}:secret:bedrock-agentcore-identity!default/oauth2/{name}-*"
         for name in EXTERNAL_PROVIDER_NAMES
@@ -95,6 +97,18 @@ def main() -> None:
                     "Effect": "Allow",
                     "Action": "secretsmanager:GetSecretValue",
                     "Resource": secret_arns,
+                },
+                {
+                    "Sid": "ReadOpenApiSchemas",
+                    "Effect": "Allow",
+                    "Action": ["s3:GetObject"],
+                    "Resource": f"{schema_bucket_arn}/*",
+                },
+                {
+                    "Sid": "GetOpenApiSchemaBucketLocation",
+                    "Effect": "Allow",
+                    "Action": "s3:GetBucketLocation",
+                    "Resource": schema_bucket_arn,
                 },
             ],
         },

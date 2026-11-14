@@ -45,6 +45,8 @@ To print the exact inline schema with the deployed Hotels API URL:
 .venv/bin/python Scripts/17_print_hotels_openapi.py
 ```
 
+The same validated schema is also kept at `Schemas/hotels-openapi.json` and uploaded to `s3://agente-agente-viajes-openapi-schema/schemas/hotels-openapi.json` for the console demo. The Gateway role has read-only access to that object path.
+
 ## Teardown
 
 `99_teardown_project.py` resolves the project resources by stable names and tags in the active account and region. It prints a plan by default and performs no mutations unless `--execute` is supplied. It preserves unrelated workloads and shared account resources, including the AWS-managed DynamoDB KMS key.

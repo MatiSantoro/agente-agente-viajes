@@ -71,6 +71,7 @@ API_SPECS = {
                     "operationId": "search_hotels",
                     "summary": "Search hotels by destination, dates and guest count",
                     "parameters": ["destination", "checkIn", "checkOut", "guests"],
+                    "required_parameters": ["destination", "checkIn", "checkOut", "guests"],
                 }
             },
             "/hotels/{id}": {
@@ -81,6 +82,7 @@ API_SPECS = {
                     "operationId": "find_available_hotel_checkins",
                     "summary": "Find available hotel stays",
                     "parameters": ["destination", "guests"],
+                    "required_parameters": ["destination"],
                 }
             },
         },
@@ -177,7 +179,8 @@ def openapi_schema(api_id: str, paths: dict[str, dict], scope: str, token_url: s
                     declared_parameters.append(path_parameter)
             for parameter in declared_parameters:
                 location = "path" if parameter == "id" else "query"
-                parameters.append({"name": parameter, "in": location, "required": parameter in {"id", "origin", "destination", "date", "query"}, "schema": {"type": "string"}})
+                required_parameters = set(config.get("required_parameters", ("id", "origin", "destination", "date", "query")))
+                parameters.append({"name": parameter, "in": location, "required": parameter in required_parameters, "schema": {"type": "string"}})
             output_paths[path][method] = {
                 "operationId": config["operationId"],
                 "summary": config["summary"],
